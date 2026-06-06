@@ -197,9 +197,9 @@ bool TestScriptedEventHashDeterminism() {
 
 bool TestPackedGeometryDeterminism() {
     const std::vector<rogue::EntityRTProxy> proxies{
-        rogue::EntityRTProxy{rogue::EntityProxyKind::EnemyBrute, rogue::Vec3{1.0f, 0.0f, 2.0f}, 0.75f, 2u},
-        rogue::EntityRTProxy{rogue::EntityProxyKind::EnemyCaster, rogue::Vec3{-2.0f, 0.0f, 1.0f}, 0.55f, 3u},
-        rogue::EntityRTProxy{rogue::EntityProxyKind::Projectile, rogue::Vec3{0.0f, 0.3f, 0.0f}, 0.30f, 4u},
+        rogue::EntityRTProxy{rogue::EntityProxyKind::EnemyBrute, rogue::Vec3{1.0f, 0.0f, 2.0f}, rogue::Vec3{1.0f, 0.0f, 0.0f}, 0.75f, 2u},
+        rogue::EntityRTProxy{rogue::EntityProxyKind::EnemyCaster, rogue::Vec3{-2.0f, 0.0f, 1.0f}, rogue::Vec3{1.0f, 0.0f, 0.0f}, 0.55f, 3u},
+        rogue::EntityRTProxy{rogue::EntityProxyKind::Projectile, rogue::Vec3{0.0f, 0.3f, 0.0f}, rogue::Vec3{1.0f, 0.0f, 0.0f}, 0.30f, 4u},
     };
 
     const auto generatedA = rogue::GenerateRTGeometry(proxies);
@@ -212,7 +212,24 @@ bool TestPackedGeometryDeterminism() {
     ok &= Expect(!packedA.indices.empty(), "packed geometry has indices");
     ok &= Expect(packedA.indices.size() == generatedA.triangles.size() * 3u, "packed index count matches triangle count");
     ok &= Expect(packedA.vertices.size() == generatedA.triangles.size() * 3u, "packed vertex count matches triangle count");
+    ok &= Expect(packedA.triangleMetadata.size() == generatedA.triangles.size(), "packed metadata count matches triangle count");
+    ok &= Expect(packedA.triangleMetadata[0].materialId == generatedA.triangles[0].materialId, "triangle metadata stores material id");
     ok &= Expect(rogue::HashPackedRTGeometry(packedA) == rogue::HashPackedRTGeometry(packedB), "packed geometry hash is deterministic");
+    return ok;
+}
+
+bool TestWorldRtGeometry() {
+    const rogue::RoomGraph worldA = rogue::GenerateWorld(0x96u);
+    const rogue::RoomGraph worldB = rogue::GenerateWorld(0x96u);
+    const auto geometryA = rogue::GenerateWorldGeometry(worldA);
+    const auto geometryB = rogue::GenerateWorldGeometry(worldB);
+    const auto packedA = rogue::PackRTGeometry(geometryA);
+    const auto packedB = rogue::PackRTGeometry(geometryB);
+
+    bool ok = true;
+    ok &= Expect(geometryA.triangles.size() > static_cast<std::size_t>(worldA.roomCount * 2), "world RT geometry contains room detail");
+    ok &= Expect(packedA.triangleMetadata.size() == geometryA.triangles.size(), "world RT metadata tracks triangles");
+    ok &= Expect(rogue::HashPackedRTGeometry(packedA) == rogue::HashPackedRTGeometry(packedB), "world RT geometry hash is deterministic");
     return ok;
 }
 
@@ -227,6 +244,8 @@ bool TestRenderSceneContract() {
     ok &= Expect(scene.frame.outputHeight == 720, "render scene stores output height");
     ok &= Expect(scene.frame.frameIndex == 7u, "render scene stores frame index");
     ok &= Expect(scene.materialCount > 0, "render scene stores materials");
+    ok &= Expect(scene.packedGeometry.triangleMetadata.size() == scene.generatedGeometry.triangles.size(), "render scene packs triangle metadata");
+    ok &= Expect(scene.frame.invViewProj[0] != 1.0f || scene.frame.invViewProj[5] != 1.0f, "render scene stores a real camera inverse matrix");
     ok &= Expect(scene.geometryHash == rogue::HashPackedRTGeometry(scene.packedGeometry), "render scene geometry hash matches packed geometry");
     return ok;
 }
@@ -253,6 +272,7 @@ int main() {
     run("run failure", TestRunFailureStopsProgression);
     run("scripted event hash", TestScriptedEventHashDeterminism);
     run("packed geometry determinism", TestPackedGeometryDeterminism);
+    run("world rt geometry", TestWorldRtGeometry);
     run("render scene contract", TestRenderSceneContract);
 
     if (!ok) {

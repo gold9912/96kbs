@@ -7,9 +7,9 @@ struct PSIn {
 };
 
 float4 MainPS(PSIn input) : SV_Target0 {
-    float3 dxr = gDxrOutput.SampleLevel(gLinearClamp, input.uv, 0.0).rgb;
+    float4 dxrSample = gDxrOutput.SampleLevel(gLinearClamp, input.uv, 0.0);
+    float3 dxr = dxrSample.rgb;
     float intensity = max(max(dxr.r, dxr.g), dxr.b);
-    float alpha = saturate(intensity * 1.7);
+    float alpha = saturate(max(dxrSample.a, intensity * 1.15));
     return float4(dxr, alpha);
 }
-

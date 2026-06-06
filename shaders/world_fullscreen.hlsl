@@ -21,10 +21,10 @@ float4 MainPS(PSIn input) : SV_Target0 {
     float wall = smoothstep(0.08, -0.04, room);
     float runes = step(0.94, hash21(floor(roomP * 5.0)));
     float fog = saturate(1.0 - length(uv) * 0.85);
-    float3 floorCol = lerp(float3(0.025, 0.018, 0.022), float3(0.12, 0.035, 0.05), fog);
-    float3 runeCol = float3(0.9, 0.17, 0.08) * runes * wall;
+    float3 floorCol = lerp(float3(0.060, 0.044, 0.052), float3(0.22, 0.075, 0.085), fog);
+    float3 runeCol = float3(1.0, 0.26, 0.10) * runes * wall;
     float3 col = floorCol * wall + runeCol;
-    col += float3(0.03, 0.02, 0.035) * smoothstep(-0.5, 0.2, -room);
+    col += float3(0.08, 0.045, 0.065) * smoothstep(-0.5, 0.2, -room);
     return float4(col, 1.0);
 }
 

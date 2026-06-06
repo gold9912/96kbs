@@ -151,6 +151,7 @@ void D3D12Context::DrawWorld(float clearPulse) {
     const D3D12_CPU_DESCRIPTOR_HANDLE rtv = CurrentRtv();
     commandList_->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
     commandList_->ClearRenderTargetView(rtv, clearColor, 0, nullptr);
+    SetViewportAndScissor();
     commandList_->SetPipelineState(worldPipelineState_.Get());
     commandList_->SetGraphicsRootSignature(worldRootSignature_.Get());
     commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -163,6 +164,7 @@ void D3D12Context::DrawComposite(ID3D12DescriptorHeap* descriptorHeap, D3D12_GPU
     }
     ID3D12DescriptorHeap* heaps[] = {descriptorHeap};
     commandList_->SetDescriptorHeaps(1, heaps);
+    SetViewportAndScissor();
     commandList_->SetPipelineState(compositePipelineState_.Get());
     commandList_->SetGraphicsRootSignature(compositeRootSignature_.Get());
     commandList_->SetGraphicsRootDescriptorTable(0, srv);
@@ -251,6 +253,9 @@ bool D3D12Context::CreateDevice(bool requireDxr) {
 }
 
 bool D3D12Context::CreateSwapchain(HWND hwnd, uint32_t width, uint32_t height) {
+    width_ = width;
+    height_ = height;
+
     DXGI_SWAP_CHAIN_DESC1 desc{};
     desc.BufferCount = kFrameCount;
     desc.Width = width;
@@ -275,6 +280,25 @@ bool D3D12Context::CreateSwapchain(HWND hwnd, uint32_t width, uint32_t height) {
     }
     frameIndex_ = swapChain_->GetCurrentBackBufferIndex();
     return true;
+}
+
+void D3D12Context::SetViewportAndScissor() {
+    D3D12_VIEWPORT viewport{};
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = static_cast<float>(width_);
+    viewport.Height = static_cast<float>(height_);
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+
+    D3D12_RECT scissor{};
+    scissor.left = 0;
+    scissor.top = 0;
+    scissor.right = static_cast<LONG>(width_);
+    scissor.bottom = static_cast<LONG>(height_);
+
+    commandList_->RSSetViewports(1, &viewport);
+    commandList_->RSSetScissorRects(1, &scissor);
 }
 
 bool D3D12Context::CreateFrameResources(bool requireDxr) {

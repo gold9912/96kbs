@@ -55,6 +55,7 @@ private:
     GpuUploadBuffer instanceUpload_;
     GpuUploadBuffer frameConstants_;
     GpuUploadBuffer materialUpload_;
+    GpuUploadBuffer triangleMetadataUpload_;
 
     D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc_{};
     uint32_t descriptorSize_ = 0;

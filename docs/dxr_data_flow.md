@@ -13,12 +13,14 @@ renderer data:
 CombatSim + RoomGraph
   -> EntityRTProxy[]
   -> GeneratedRTGeometry
-  -> PackedRTGeometry vertices/indices
+  -> PackedRTGeometry vertices/indices/triangle metadata
   -> RenderScene frame constants/materials
 ```
 
-The packed geometry format is the only accepted input for DXR upload. There are
-no mesh files, texture files, animation files, or asset database entries.
+The packed geometry format is the only accepted input for DXR upload. Room
+floors, borders, portal markers, entity silhouettes, and short-lived VFX are all
+generated procedurally. There are no mesh files, texture files, animation files,
+or asset database entries.
 
 ## GPU resource path
 
@@ -61,7 +63,7 @@ The global DXR root signature is fixed to:
 
 ```text
 root 0: descriptor table UAV u0        RWTexture2D<float4> gOutput
-root 1: descriptor table SRV t0-t1     TLAS + material buffer
+root 1: descriptor table SRV t0-t2     TLAS + material buffer + triangle metadata
 root 2: root CBV b0                    RayFrameConstants
 ```
 
@@ -71,6 +73,7 @@ HLSL declarations must stay aligned with this layout:
 RWTexture2D<float4> gOutput : register(u0);
 RaytracingAccelerationStructure gScene : register(t0);
 StructuredBuffer<EntityMaterial> gMaterials : register(t1);
+StructuredBuffer<TriangleMetadata> gTriangles : register(t2);
 ConstantBuffer<RayFrameConstants> gFrame : register(b0);
 ```
 
@@ -88,7 +91,8 @@ and then calls `DispatchRays`.
 0: UAV u0    DXR output texture
 1: SRV t0    TLAS
 2: SRV t1    material buffer
-3: SRV t0    DXR output texture for raster composite
+3: SRV t2    triangle metadata buffer
+4: SRV t0    DXR output texture for raster composite
 ```
 
 The raster world pass remains separate. The current frame order is:

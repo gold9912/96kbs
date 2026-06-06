@@ -44,6 +44,7 @@ private:
     bool CreateCompositePipeline();
     bool CreateFence();
     void WaitForGpu();
+    void SetViewportAndScissor();
     void DrawWorld(float clearPulse);
     void DrawComposite(ID3D12DescriptorHeap* descriptorHeap, D3D12_GPU_DESCRIPTOR_HANDLE srv);
     D3D12_CPU_DESCRIPTOR_HANDLE CurrentRtv() const;
@@ -54,6 +55,8 @@ private:
     std::string adapterName_{};
     std::string lastError_{};
     uint32_t rtvDescriptorSize_ = 0;
+    uint32_t width_ = 0;
+    uint32_t height_ = 0;
     uint32_t frameIndex_ = 0;
     uint64_t fenceValue_ = 0;
     void* fenceEvent_ = nullptr;

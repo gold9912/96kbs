@@ -46,6 +46,22 @@ function Find-CommandPath($name) {
     return $null
 }
 
+function Find-CommandPathWithVs($name, $vsDevCmd) {
+    $path = Find-CommandPath $name
+    if ($path) {
+        return $path
+    }
+    if (-not $vsDevCmd) {
+        return $null
+    }
+
+    $lines = cmd.exe /d /c "call `"$vsDevCmd`" -arch=amd64 -host_arch=amd64 >nul && where $name" 2>$null
+    if ($lines) {
+        return $lines | Select-Object -First 1
+    }
+    return $null
+}
+
 function Display-OrMissing($value, $missing) {
     if ($value) {
         return $value
@@ -54,10 +70,10 @@ function Display-OrMissing($value, $missing) {
 }
 
 $vsDevCmd = Find-VsDevCmd
-$cl = Find-CommandPath 'cl.exe'
-$dxc = Find-CommandPath 'dxc.exe'
-$cmake = Find-CommandPath 'cmake.exe'
-$ninja = Find-CommandPath 'ninja.exe'
+$cl = Find-CommandPathWithVs 'cl.exe' $vsDevCmd
+$dxc = Find-CommandPathWithVs 'dxc.exe' $vsDevCmd
+$cmake = Find-CommandPathWithVs 'cmake.exe' $vsDevCmd
+$ninja = Find-CommandPathWithVs 'ninja.exe' $vsDevCmd
 
 Write-Host "MSVC cl.exe:     $(Display-OrMissing $cl '<not in PATH>')"
 Write-Host "DXC dxc.exe:     $(Display-OrMissing $dxc '<not in PATH>')"

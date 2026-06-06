@@ -11,7 +11,7 @@
 
 namespace rogue {
 
-constexpr uint32_t kMaxDxrMaterials = 8;
+constexpr uint32_t kMaxDxrMaterials = 12;
 
 struct CameraParams {
     Vec3 position{0.0f, 18.0f, -14.0f};

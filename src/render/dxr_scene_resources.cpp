@@ -90,7 +90,7 @@ bool DxrSceneResources::Update(ID3D12Device5* device, ID3D12GraphicsCommandList4
 }
 
 bool DxrSceneResources::Update(ID3D12Device5* device, ID3D12GraphicsCommandList4* commandList, const PackedRTGeometry& geometry) {
-    if (!device || !commandList || geometry.vertices.empty() || geometry.indices.empty()) {
+    if (!device || !commandList || geometry.vertices.empty() || geometry.indices.empty() || geometry.triangleMetadata.empty()) {
         return false;
     }
     if (!EnsureDescriptorHeap(device)) {
@@ -120,6 +120,7 @@ void DxrSceneResources::Reset() {
     instanceUpload_.Reset();
     frameConstants_.Reset();
     materialUpload_.Reset();
+    triangleMetadataUpload_.Reset();
     geometryDesc_ = {};
     descriptorSize_ = 0;
     outputWidth_ = 0;
@@ -141,7 +142,7 @@ D3D12_GPU_DESCRIPTOR_HANDLE DxrSceneResources::SrvTableGpu() const {
 
 D3D12_GPU_DESCRIPTOR_HANDLE DxrSceneResources::OutputSrvGpu() const {
     D3D12_GPU_DESCRIPTOR_HANDLE handle = OutputUavGpu();
-    handle.ptr += descriptorSize_ * 3u;
+    handle.ptr += descriptorSize_ * 4u;
     return handle;
 }
 
@@ -173,7 +174,7 @@ bool DxrSceneResources::EnsureDescriptorHeap(ID3D12Device5* device) {
 
     D3D12_DESCRIPTOR_HEAP_DESC desc{};
     desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    desc.NumDescriptors = 4;
+    desc.NumDescriptors = 5;
     desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     if (FAILED(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&descriptorHeap_)))) {
         return false;
@@ -230,6 +231,12 @@ bool DxrSceneResources::UploadGeometry(ID3D12Device5* device, ID3D12GraphicsComm
         return false;
     }
     if (!indexUpload_.Create(device, geometry.indices.data(), static_cast<std::size_t>(indexBytes))) {
+        return false;
+    }
+    if (!triangleMetadataUpload_.Create(
+            device,
+            geometry.triangleMetadata.data(),
+            geometry.triangleMetadata.size() * sizeof(RtTriangleMetadata))) {
         return false;
     }
 
@@ -346,7 +353,7 @@ bool DxrSceneResources::BuildAccelerationStructures(ID3D12Device5* device, ID3D1
 }
 
 void DxrSceneResources::WriteDescriptors(ID3D12Device5* device) {
-    if (!descriptorHeap_ || !output_ || !tlasResult_ || !materialUpload_.Resource()) {
+    if (!descriptorHeap_ || !output_ || !tlasResult_ || !materialUpload_.Resource() || !triangleMetadataUpload_.Resource()) {
         return;
     }
 
@@ -374,6 +381,17 @@ void DxrSceneResources::WriteDescriptors(ID3D12Device5* device) {
     materialSrv.Buffer.StructureByteStride = sizeof(EntityMaterial);
     materialSrv.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
     device->CreateShaderResourceView(materialUpload_.Resource(), &materialSrv, handle);
+
+    handle.ptr += descriptorSize_;
+    D3D12_SHADER_RESOURCE_VIEW_DESC triangleSrv{};
+    triangleSrv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    triangleSrv.Format = DXGI_FORMAT_UNKNOWN;
+    triangleSrv.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    triangleSrv.Buffer.FirstElement = 0;
+    triangleSrv.Buffer.NumElements = stats_.triangleCount;
+    triangleSrv.Buffer.StructureByteStride = sizeof(RtTriangleMetadata);
+    triangleSrv.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+    device->CreateShaderResourceView(triangleMetadataUpload_.Resource(), &triangleSrv, handle);
 
     handle.ptr += descriptorSize_;
     D3D12_SHADER_RESOURCE_VIEW_DESC outputSrv{};

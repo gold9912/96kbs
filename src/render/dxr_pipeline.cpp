@@ -61,7 +61,7 @@ bool DxrPipeline::CreateGlobalRootSignature(ID3D12Device5* device) {
     ranges[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
     ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    ranges[1].NumDescriptors = 2;
+    ranges[1].NumDescriptors = 3;
     ranges[1].BaseShaderRegister = 0;
     ranges[1].RegisterSpace = 0;
     ranges[1].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
