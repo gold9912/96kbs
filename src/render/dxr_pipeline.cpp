@@ -123,11 +123,11 @@ bool DxrPipeline::CreateStateObject(ID3D12Device5* device) {
     hitGroupDesc.ClosestHitShaderImport = L"ClosestHit";
 
     D3D12_RAYTRACING_SHADER_CONFIG shaderConfig{};
-    shaderConfig.MaxPayloadSizeInBytes = 16;
+    shaderConfig.MaxPayloadSizeInBytes = 20;
     shaderConfig.MaxAttributeSizeInBytes = 8;
 
     D3D12_RAYTRACING_PIPELINE_CONFIG pipelineConfig{};
-    pipelineConfig.MaxTraceRecursionDepth = 1;
+    pipelineConfig.MaxTraceRecursionDepth = 2;
 
     D3D12_GLOBAL_ROOT_SIGNATURE globalRoot{};
     globalRoot.pGlobalRootSignature = globalRootSignature_.Get();

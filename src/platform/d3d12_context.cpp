@@ -82,7 +82,7 @@ bool D3D12Context::Initialize(HWND hwnd, uint32_t width, uint32_t height, bool r
 
 void D3D12Context::Shutdown() {
     if (commandQueue_ && fence_) {
-        WaitForGpu();
+        WaitForGpu(1000);
     }
     if (fenceEvent_) {
         CloseHandle(static_cast<HANDLE>(fenceEvent_));
@@ -90,7 +90,7 @@ void D3D12Context::Shutdown() {
     }
 }
 
-bool D3D12Context::RenderFrame(float clearPulse, D3D12FrameCallback callback, void* userData) {
+bool D3D12Context::RenderFrame(float clearPulse, D3D12FrameCallback callback, void* userData, const D3D12OverlayConstants* overlay) {
     ID3D12CommandAllocator* allocator = commandAllocators_[frameIndex_].Get();
     if (Failed(allocator->Reset(), "CommandAllocator::Reset")) {
         return false;
@@ -107,7 +107,7 @@ bool D3D12Context::RenderFrame(float clearPulse, D3D12FrameCallback callback, vo
     barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     commandList_->ResourceBarrier(1, &barrier);
 
-    DrawWorld(clearPulse);
+    DrawWorld(clearPulse, overlay);
 
     D3D12FrameCallbackResult callbackResult{};
     if (callback) {
@@ -122,7 +122,7 @@ bool D3D12Context::RenderFrame(float clearPulse, D3D12FrameCallback callback, vo
         }
     }
     if (callbackResult.ok && callbackResult.descriptorHeap && callbackResult.compositeSrv.ptr != 0) {
-        DrawComposite(callbackResult.descriptorHeap, callbackResult.compositeSrv);
+        DrawComposite(callbackResult.descriptorHeap, callbackResult.compositeSrv, overlay);
     }
 
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
@@ -135,13 +135,15 @@ bool D3D12Context::RenderFrame(float clearPulse, D3D12FrameCallback callback, vo
 
     ID3D12CommandList* lists[] = {commandList_.Get()};
     commandQueue_->ExecuteCommandLists(1, lists);
-    swapChain_->Present(1, 0);
-    WaitForGpu();
+    swapChain_->Present(0, 0);
+    if (!WaitForGpu()) {
+        return false;
+    }
     frameIndex_ = swapChain_->GetCurrentBackBufferIndex();
     return callbackResult.ok;
 }
 
-void D3D12Context::DrawWorld(float clearPulse) {
+void D3D12Context::DrawWorld(float clearPulse, const D3D12OverlayConstants* overlay) {
     const float clearColor[4] = {
         0.015f + clearPulse * 0.025f,
         0.010f,
@@ -154,11 +156,21 @@ void D3D12Context::DrawWorld(float clearPulse) {
     SetViewportAndScissor();
     commandList_->SetPipelineState(worldPipelineState_.Get());
     commandList_->SetGraphicsRootSignature(worldRootSignature_.Get());
+    D3D12OverlayConstants constants = overlay ? *overlay : D3D12OverlayConstants{};
+    constants.outputWidth = constants.outputWidth != 0 ? constants.outputWidth : width_;
+    constants.outputHeight = constants.outputHeight != 0 ? constants.outputHeight : height_;
+    constants.renderWidth = constants.renderWidth != 0 ? constants.renderWidth : constants.outputWidth;
+    constants.renderHeight = constants.renderHeight != 0 ? constants.renderHeight : constants.outputHeight;
+    commandList_->SetGraphicsRoot32BitConstants(
+        0,
+        static_cast<UINT>(sizeof(D3D12OverlayConstants) / sizeof(uint32_t)),
+        &constants,
+        0);
     commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commandList_->DrawInstanced(3, 1, 0, 0);
 }
 
-void D3D12Context::DrawComposite(ID3D12DescriptorHeap* descriptorHeap, D3D12_GPU_DESCRIPTOR_HANDLE srv) {
+void D3D12Context::DrawComposite(ID3D12DescriptorHeap* descriptorHeap, D3D12_GPU_DESCRIPTOR_HANDLE srv, const D3D12OverlayConstants* overlay) {
     if (!descriptorHeap || srv.ptr == 0) {
         return;
     }
@@ -168,6 +180,14 @@ void D3D12Context::DrawComposite(ID3D12DescriptorHeap* descriptorHeap, D3D12_GPU
     commandList_->SetPipelineState(compositePipelineState_.Get());
     commandList_->SetGraphicsRootSignature(compositeRootSignature_.Get());
     commandList_->SetGraphicsRootDescriptorTable(0, srv);
+    D3D12OverlayConstants constants = overlay ? *overlay : D3D12OverlayConstants{};
+    constants.outputWidth = constants.outputWidth != 0 ? constants.outputWidth : width_;
+    constants.outputHeight = constants.outputHeight != 0 ? constants.outputHeight : height_;
+    commandList_->SetGraphicsRoot32BitConstants(
+        1,
+        static_cast<UINT>(sizeof(D3D12OverlayConstants) / sizeof(uint32_t)),
+        &constants,
+        0);
     commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commandList_->DrawInstanced(3, 1, 0, 0);
 }
@@ -345,6 +365,15 @@ bool D3D12Context::CreateFrameResources(bool requireDxr) {
 
 bool D3D12Context::CreateWorldPipeline() {
     D3D12_ROOT_SIGNATURE_DESC rootDesc{};
+    D3D12_ROOT_PARAMETER rootParam{};
+    rootParam.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    rootParam.Constants.ShaderRegister = 0;
+    rootParam.Constants.RegisterSpace = 0;
+    rootParam.Constants.Num32BitValues = sizeof(D3D12OverlayConstants) / sizeof(uint32_t);
+    rootParam.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    rootDesc.NumParameters = 1;
+    rootDesc.pParameters = &rootParam;
     rootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
     Microsoft::WRL::ComPtr<ID3DBlob> rootBlob;
@@ -403,16 +432,22 @@ bool D3D12Context::CreateWorldPipeline() {
 bool D3D12Context::CreateCompositePipeline() {
     D3D12_DESCRIPTOR_RANGE range{};
     range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    range.NumDescriptors = 1;
+    range.NumDescriptors = 3;
     range.BaseShaderRegister = 0;
     range.RegisterSpace = 0;
     range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER param{};
-    param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    param.DescriptorTable.NumDescriptorRanges = 1;
-    param.DescriptorTable.pDescriptorRanges = &range;
-    param.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    D3D12_ROOT_PARAMETER params[2]{};
+    params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[0].DescriptorTable.NumDescriptorRanges = 1;
+    params[0].DescriptorTable.pDescriptorRanges = &range;
+    params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    params[1].Constants.ShaderRegister = 0;
+    params[1].Constants.RegisterSpace = 0;
+    params[1].Constants.Num32BitValues = sizeof(D3D12OverlayConstants) / sizeof(uint32_t);
+    params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     D3D12_STATIC_SAMPLER_DESC sampler{};
     sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -430,8 +465,8 @@ bool D3D12Context::CreateCompositePipeline() {
     sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     D3D12_ROOT_SIGNATURE_DESC rootDesc{};
-    rootDesc.NumParameters = 1;
-    rootDesc.pParameters = &param;
+    rootDesc.NumParameters = 2;
+    rootDesc.pParameters = params;
     rootDesc.NumStaticSamplers = 1;
     rootDesc.pStaticSamplers = &sampler;
     rootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
@@ -466,10 +501,10 @@ bool D3D12Context::CreateCompositePipeline() {
     pso.RasterizerState.DepthClipEnable = TRUE;
 
     D3D12_RENDER_TARGET_BLEND_DESC& blend = pso.BlendState.RenderTarget[0];
-    blend.BlendEnable = TRUE;
+    blend.BlendEnable = FALSE;
     blend.LogicOpEnable = FALSE;
-    blend.SrcBlend = D3D12_BLEND_SRC_ALPHA;
-    blend.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+    blend.SrcBlend = D3D12_BLEND_ONE;
+    blend.DestBlend = D3D12_BLEND_ZERO;
     blend.BlendOp = D3D12_BLEND_OP_ADD;
     blend.SrcBlendAlpha = D3D12_BLEND_ONE;
     blend.DestBlendAlpha = D3D12_BLEND_ZERO;
@@ -499,17 +534,35 @@ bool D3D12Context::CreateFence() {
     return fenceEvent_ != nullptr;
 }
 
-void D3D12Context::WaitForGpu() {
+bool D3D12Context::WaitForGpu(uint32_t timeoutMs) {
+    if (!commandQueue_ || !fence_ || !fenceEvent_) {
+        lastError_ = "GPU fence wait requested before synchronization objects were ready.";
+        return false;
+    }
+
     const uint64_t signalValue = fenceValue_;
     if (Failed(commandQueue_->Signal(fence_.Get(), signalValue), "CommandQueue::Signal")) {
-        return;
+        lastError_ = "CommandQueue::Signal failed while waiting for GPU.";
+        return false;
     }
     ++fenceValue_;
 
     if (fence_->GetCompletedValue() < signalValue) {
-        fence_->SetEventOnCompletion(signalValue, static_cast<HANDLE>(fenceEvent_));
-        WaitForSingleObject(static_cast<HANDLE>(fenceEvent_), INFINITE);
+        if (Failed(fence_->SetEventOnCompletion(signalValue, static_cast<HANDLE>(fenceEvent_)), "Fence::SetEventOnCompletion")) {
+            lastError_ = "Fence::SetEventOnCompletion failed while waiting for GPU.";
+            return false;
+        }
+        const DWORD waitResult = WaitForSingleObject(static_cast<HANDLE>(fenceEvent_), timeoutMs);
+        if (waitResult != WAIT_OBJECT_0) {
+            lastError_ = waitResult == WAIT_TIMEOUT
+                ? "GPU fence wait timed out."
+                : "GPU fence wait failed.";
+            OutputDebugStringA(lastError_.c_str());
+            OutputDebugStringA("\n");
+            return false;
+        }
     }
+    return true;
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::CurrentRtv() const {

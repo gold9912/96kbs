@@ -1,5 +1,6 @@
 param(
     [string]$BuildDir = 'build',
+    [switch]$Clean,
     [switch]$RunApp
 )
 
@@ -31,7 +32,9 @@ if (-not $devCmd) {
     Write-Error 'VsDevCmd.bat was not found. Install Visual Studio 2022 Build Tools with the C++ workload first.'
 }
 
-$runLine = "call `"$devCmd`" -arch=amd64 -host_arch=amd64 && cmake -S `"$repo`" -B `"$repo\$BuildDir`" -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build `"$repo\$BuildDir`" && ctest --test-dir `"$repo\$BuildDir`" --output-on-failure"
+$env:VSLANG = '1033'
+$buildCommand = if ($Clean) { "cmake --build `"$repo\$BuildDir`" --clean-first" } else { "cmake --build `"$repo\$BuildDir`"" }
+$runLine = "call `"$devCmd`" -arch=amd64 -host_arch=amd64 && cmake -S `"$repo`" -B `"$repo\$BuildDir`" -G Ninja -DCMAKE_BUILD_TYPE=Debug && $buildCommand && ctest --test-dir `"$repo\$BuildDir`" --output-on-failure"
 if ($RunApp) {
     $runLine += " && `"$repo\$BuildDir\rogue96.exe`""
 }

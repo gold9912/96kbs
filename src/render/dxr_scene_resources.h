@@ -36,8 +36,10 @@ public:
 private:
     bool EnsureDescriptorHeap(ID3D12Device5* device);
     bool EnsureOutput(ID3D12Device5* device, uint32_t width, uint32_t height);
+    bool EnsureVfxAtlas(ID3D12Device5* device, ID3D12GraphicsCommandList4* commandList);
     bool UploadGeometry(ID3D12Device5* device, ID3D12GraphicsCommandList4* commandList, const PackedRTGeometry& geometry);
     bool UploadFrameData(ID3D12Device5* device, const RenderScene& scene);
+    bool UploadSprites(ID3D12Device5* device, const RenderScene& scene);
     bool BuildAccelerationStructures(ID3D12Device5* device, ID3D12GraphicsCommandList4* commandList);
     void WriteDescriptors(ID3D12Device5* device);
 
@@ -49,6 +51,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> blasResult_;
     Microsoft::WRL::ComPtr<ID3D12Resource> tlasScratch_;
     Microsoft::WRL::ComPtr<ID3D12Resource> tlasResult_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> vfxAtlas_;
 
     GpuUploadBuffer vertexUpload_;
     GpuUploadBuffer indexUpload_;
@@ -56,12 +59,15 @@ private:
     GpuUploadBuffer frameConstants_;
     GpuUploadBuffer materialUpload_;
     GpuUploadBuffer triangleMetadataUpload_;
+    GpuUploadBuffer spriteUpload_;
+    GpuUploadBuffer vfxAtlasUpload_;
 
     D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc_{};
     uint32_t descriptorSize_ = 0;
     uint32_t outputWidth_ = 0;
     uint32_t outputHeight_ = 0;
     uint32_t materialCount_ = 0;
+    uint32_t spriteCount_ = 0;
     D3D12_RESOURCE_STATES outputState_ = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
     DxrBuildStats stats_{};
 };

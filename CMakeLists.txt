@@ -92,20 +92,43 @@ set(ROGUE96_GAME_SOURCES
     src/game/game_session.cpp
     src/game/world_gen.cpp
     src/render/entity_rt_proxy.cpp
-    src/render/render_scene.cpp)
+    src/render/render_scene.cpp
+    src/render/visual_style.cpp)
 
-add_library(rogue96_core STATIC ${ROGUE96_GAME_SOURCES})
-target_include_directories(rogue96_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_compile_definitions(rogue96_core PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
-
-add_executable(rogue96 WIN32
+set(ROGUE96_APP_SOURCES
     src/app/app.cpp
     src/platform/d3d12_context.cpp
     src/render/dxr_scene_resources.cpp
     src/render/dxr_pipeline.cpp
     src/render/dxr_shader_table.cpp
     src/render/gpu_upload_buffer.cpp
-    src/win32_main.cpp
+    src/win32_main.cpp)
+
+set(ROGUE96_TEST_SOURCES
+    tests/sim_tests.cpp)
+
+set(ROGUE96_SHARED_HEADERS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/game/combat_sim.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/game/game_session.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/game/math.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/game/rng.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/game/world_gen.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/render/entity_rt_proxy.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/render/render_scene.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/render/visual_style.h")
+
+set_source_files_properties(
+    ${ROGUE96_GAME_SOURCES}
+    ${ROGUE96_APP_SOURCES}
+    ${ROGUE96_TEST_SOURCES}
+    PROPERTIES OBJECT_DEPENDS "${ROGUE96_SHARED_HEADERS}")
+
+add_library(rogue96_core STATIC ${ROGUE96_GAME_SOURCES})
+target_include_directories(rogue96_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(rogue96_core PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
+
+add_executable(rogue96 WIN32
+    ${ROGUE96_APP_SOURCES}
     "${EMBEDDED_SHADER_SOURCE}")
 
 target_include_directories(rogue96 PRIVATE
@@ -137,7 +160,7 @@ add_custom_target(size_report
 
 if(ROGUE96_BUILD_TESTS)
     add_executable(rogue96_tests
-        tests/sim_tests.cpp)
+        ${ROGUE96_TEST_SOURCES})
     target_include_directories(rogue96_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(rogue96_tests PRIVATE rogue96_core)
     add_test(NAME rogue96_tests COMMAND rogue96_tests)

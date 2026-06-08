@@ -20,13 +20,15 @@ This repository contains the first implementation layer:
 - Deterministic room/portal world generator.
 - Deterministic combat simulation for top-down shooter/slasher/spell gameplay.
 - Procedural RT proxy geometry generation for future BLAS/TLAS builds.
+- Fixed-capacity screen-space VFX sprite overlay with one embedded micro mask
+  atlas for weapon-local glow and elemental hit pulses.
 - Core simulation tests that do not require a GPU.
 
 The renderer currently draws the procedural world pass through D3D12, updates
 generated DXR scene resources, dispatches the ray generation shader, and
-composites the DXR output texture over the world pass. The next implementation
-step is validating this path under MSVC/DXC and tightening any D3D12 validation
-errors reported by the debug layer.
+composites the DXR output texture over the world pass. The current gameplay
+slice includes procedural rooms, portals, combat HUD, reward choice cards,
+distinct enemy silhouettes, and a final-room boss proxy.
 
 ## Requirements
 
@@ -43,7 +45,7 @@ Open a Developer PowerShell for Visual Studio:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\check_toolchain.ps1
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build
+cmake --build build --clean-first
 ctest --test-dir build --output-on-failure
 cmake --build build --target size_report
 ```
@@ -51,8 +53,12 @@ cmake --build build --target size_report
 Or let the helper locate `VsDevCmd.bat` and run the Debug pass:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\build_msvc_debug.ps1
+powershell -ExecutionPolicy Bypass -File .\tools\build_msvc_debug.ps1 -Clean
 ```
+
+Use a clean rebuild after changing shared gameplay/render headers. This keeps
+Ninja/MSVC object files in sync with structs such as `GameEvent`,
+`GameSessionTickResult`, and `ActorStatusSet`.
 
 Run:
 
@@ -71,21 +77,58 @@ and procedural world pass active, but skips DXR pipeline creation,
 BLAS/TLAS updates, `DispatchRays`, and DXR composite. A normal run still
 requires a DXR-capable GPU.
 
+For automated smoke runs, append a frame budget and the app will close itself
+after rendering that many frames:
+
+```powershell
+.\build\rogue96.exe --smoke-frames=60
+.\build\rogue96.exe --smoke-combat-room=1 --smoke-frames=180
+.\build\rogue96.exe --start-floor=5 --smoke-combat-room=1 --smoke-frames=180
+.\build\rogue96.exe --allow-no-dxr --smoke-frames=60
+```
+
+The default window is `1920x1080`. Display and render scaling are separate. The window size controls input and HUD
+scale, while `--render-scale=` controls the DXR output resolution before the
+fullscreen composite:
+
+```powershell
+.\build\rogue96.exe --width=1920 --height=1080 --smoke-combat-room=1 --smoke-frames=180
+.\build\rogue96.exe --width=2560 --height=1440 --render-scale=75 --fps-limit=120
+.\build\rogue96.exe --width=3840 --height=2160 --render-scale=50 --fps-limit=0
+```
+
+`--fps-limit=0` disables the app-side frame cap. The default cap is `120`, and
+the default render scale is `100`.
+
+DXR quality is exposed as a small runtime tier so visual iteration can stay
+inside the no-external-runtime-assets size budget while still offering a rich
+default frame:
+
+```powershell
+.\build\rogue96.exe --rt-quality=0  # performance: direct DXR lighting
+.\build\rogue96.exe --rt-quality=1  # reflections enabled
+.\build\rogue96.exe --rt-quality=2  # default: reflections plus diffuse GI
+```
+
 ## Controls
 
 - `WASD`: move
 - Mouse: aim
-- Left mouse: melee slash
-- Right mouse: ranged spell
-- `Q`: area/control spell
+- `Q` or left mouse: primary weapon action
+- `E` or right mouse: weapon ability
+- `1`/`2`/`3`: choose reward or switch weapon slot
 - `Space`: dash
 - `Esc`: quit
 
 ## Size discipline
 
 The prototype accepts `<15 MB` as the hard technology ceiling, with `<3 MB` as
-the main optimization target. Release builds embed shader bytecode and do not
-load external art assets or runtime shader compilers.
+the main optimization target. Release builds embed shader bytecode and one tiny
+generated `R8_UNORM` VFX mask atlas, and do not load external art assets or
+runtime shader compilers.
+
+Visual references may live under `docs/visual_references/`, but they are
+documentation only and are never loaded or embedded by the runtime.
 
 ## Renderer contract
 

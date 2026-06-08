@@ -11,6 +11,9 @@ constexpr uint32_t kDefaultSeed = 0x0000964bu;
 constexpr int kMaxRooms = 8;
 constexpr int kMaxPortals = 12;
 constexpr int kMaxSpawns = 24;
+constexpr float kControlObjectiveHoldSeconds = 2.40f;
+constexpr float kControlObjectiveRadius = 2.55f;
+constexpr float kControlObjectiveDecayRate = 0.55f;
 
 enum class RoomLifecycle : uint8_t {
     Locked,
@@ -22,21 +25,27 @@ enum class RoomLifecycle : uint8_t {
 enum class RoomObjectiveKind : uint8_t {
     KillAll,
     SurviveTimer,
-    CustomPlaceholder
+    ControlPoint
 };
 
 struct RoomObjective {
     RoomObjectiveKind kind = RoomObjectiveKind::KillAll;
     float targetSeconds = 0.0f;
     float elapsedSeconds = 0.0f;
+    Vec2 controlPoint{};
+    float controlRadius = 0.0f;
     bool completed = false;
 };
 
 struct EngineConfig {
     uint32_t seed = kDefaultSeed;
-    uint32_t width = 1280;
-    uint32_t height = 720;
+    uint32_t width = 1920;
+    uint32_t height = 1080;
+    uint32_t renderScalePercent = 100;
+    uint32_t fpsLimit = 120;
     uint32_t renderQuality = 2;
+    int startFloorIndex = 0;
+    int smokeCombatRoom = -1;
     bool debugText = true;
     bool requireDxr = true;
 };
@@ -75,6 +84,8 @@ struct SdfRoomParams {
 
 struct RoomGraph {
     uint32_t seed = 0;
+    int floorIndex = 0;
+    float descent = 0.0f;
     int roomCount = 0;
     int portalCount = 0;
     int spawnCount = 0;
@@ -84,9 +95,13 @@ struct RoomGraph {
     std::array<SdfRoomParams, kMaxRooms> sdfRooms{};
 };
 
-RoomGraph GenerateWorld(uint32_t seed);
+RoomGraph GenerateWorld(uint32_t seed, int floorIndex = 0);
 uint32_t HashWorld(const RoomGraph& world);
+int SpawnArchetypePressureCost(int archetype);
+int RoomSpawnPressure(const RoomGraph& world, int roomIndex);
 bool PointInsideRoom(const Room& room, Vec2 p);
+bool PointInsidePortalPath(const RoomGraph& world, const Portal& portal, Vec2 p);
+bool IsTraversablePosition(const RoomGraph& world, int currentRoom, Vec2 p);
 int FindRoomAt(const RoomGraph& world, Vec2 p);
 
 }
