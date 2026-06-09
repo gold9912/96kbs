@@ -87,6 +87,19 @@ after rendering that many frames:
 .\build\rogue96.exe --allow-no-dxr --smoke-frames=60
 ```
 
+Smoke runs save the final presented frame as a BMP under `artifacts\` by
+default. Use `--capture-frame=artifacts\my_frame.bmp` to pick a path, or
+`--no-smoke-capture` to disable this local visual-check output.
+
+For the reference-grade arena target, use the preset below. It expands to
+floor `0`, combat room `1`, `1920x1080`, `rt-quality=5`, `180` smoke frames,
+and writes `artifacts\reference_target.bmp` unless `--capture-frame=` is
+overridden:
+
+```powershell
+.\build\rogue96.exe --reference-target=1
+```
+
 The default window is `1920x1080`. Display and render scaling are separate. The window size controls input and HUD
 scale, while `--render-scale=` controls the DXR output resolution before the
 fullscreen composite:
@@ -107,7 +120,10 @@ default frame:
 ```powershell
 .\build\rogue96.exe --rt-quality=0  # performance: direct DXR lighting
 .\build\rogue96.exe --rt-quality=1  # reflections enabled
-.\build\rogue96.exe --rt-quality=2  # default: reflections plus diffuse GI
+.\build\rogue96.exe --rt-quality=2  # reflections plus diffuse GI
+.\build\rogue96.exe --rt-quality=3  # cinematic PT tier with soft shadows, area/window light, extra GI
+.\build\rogue96.exe --rt-quality=4  # higher reference tier with denser area/shadow sampling
+.\build\rogue96.exe --rt-quality=5  # default: reference PT tier with the richest lighting/reflections
 ```
 
 ## Controls

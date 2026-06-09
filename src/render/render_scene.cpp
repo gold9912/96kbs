@@ -34,14 +34,14 @@ DirectX::XMMATRIX UpdateCamera(
     }
 
     const Vec2 playerBias = (player.position - roomCenter) * 0.12f;
-    scene.camera.target = Vec3{roomCenter.x + playerBias.x, 0.24f, roomCenter.y + playerBias.y};
+    scene.camera.target = Vec3{roomCenter.x + playerBias.x, 0.32f, roomCenter.y + playerBias.y};
     const float arenaRadius = std::max(roomHalfSize.x, roomHalfSize.y);
     const float aspect = outputHeight > 0
         ? static_cast<float>(outputWidth) / static_cast<float>(outputHeight)
         : 16.0f / 9.0f;
     const float narrowScale = aspect < 1.45f ? 1.12f : 1.0f;
-    const float height = (20.6f + arenaRadius * 0.46f) * narrowScale;
-    const float pullback = (13.2f + arenaRadius * 0.82f) * narrowScale;
+    const float height = (13.4f + arenaRadius * 0.34f) * narrowScale;
+    const float pullback = (12.2f + arenaRadius * 0.86f) * narrowScale;
     const float sideOffset = arenaRadius * 0.58f;
     scene.camera.position = Vec3{
         scene.camera.target.x - sideOffset,
@@ -54,7 +54,7 @@ DirectX::XMMATRIX UpdateCamera(
     const DirectX::XMVECTOR target = DirectX::XMVectorSet(scene.camera.target.x, scene.camera.target.y, scene.camera.target.z, 1.0f);
     const DirectX::XMVECTOR up = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
     const DirectX::XMMATRIX view = DirectX::XMMatrixLookAtLH(eye, target, up);
-    const DirectX::XMMATRIX proj = DirectX::XMMatrixPerspectiveFovLH(0.420f, aspect, 0.05f, 220.0f);
+    const DirectX::XMMATRIX proj = DirectX::XMMatrixPerspectiveFovLH(0.500f, aspect, 0.05f, 220.0f);
     const DirectX::XMMATRIX viewProj = DirectX::XMMatrixMultiply(view, proj);
     const DirectX::XMMATRIX invViewProj = DirectX::XMMatrixInverse(nullptr, viewProj);
     StoreMatrix(scene.frame.invViewProj, invViewProj);
@@ -86,25 +86,26 @@ std::array<EntityMaterial, kMaxDxrMaterials> DefaultMaterials(const RoomVisualSt
     const Vec3 light = VisualStyleColor(style, VisualStyleColorRole::Light);
     const Vec3 danger = VisualStyleColor(style, VisualStyleColorRole::Danger);
     const Vec3 control = VisualStyleColor(style, VisualStyleColorRole::Control);
-    const Vec3 foliage = style.biome == VisualBiome::SunlitRuins || style.biome == VisualBiome::OvergrownSanctuary
-        ? MixColor(Vec3{0.016f, 0.052f, 0.025f}, Vec3{0.046f, 0.124f, 0.044f}, 0.28f + style.moss * 0.20f)
+    const bool sunlitStyle = style.biome == VisualBiome::SunlitRuins || style.biome == VisualBiome::OvergrownSanctuary;
+    const Vec3 foliage = sunlitStyle
+        ? MixColor(Vec3{0.020f, 0.076f, 0.030f}, Vec3{0.062f, 0.168f, 0.052f}, 0.36f + style.moss * 0.24f)
         : MixColor(Vec3{0.050f, 0.110f, 0.086f}, control, 0.12f);
     const float darkGlow = style.glow * 0.30f + style.corruption * 0.16f;
-    materials[0] = EntityMaterial{ScaleColor(floor, 0.90f), style.wetness * 0.024f};
-    materials[1] = EntityMaterial{ScaleColor(wall, 0.86f), 0.003f + darkGlow * 0.030f};
-    materials[2] = EntityMaterial{MixColor(Vec3{0.014f, 0.045f, 0.072f}, VisualStyleColor(style, VisualStyleColorRole::Hud), 0.18f), 0.052f + style.glow * 0.026f};
-    materials[3] = EntityMaterial{ScaleColor(MixColor(light, Vec3{0.08f, 0.76f, 0.98f}, 0.56f), 0.68f), 0.24f + style.glow * 0.076f};
-    materials[4] = EntityMaterial{ScaleColor(MixColor(Vec3{0.105f, 0.060f, 0.052f}, danger, 0.30f), 0.72f), 0.024f + style.corruption * 0.040f};
-    materials[5] = EntityMaterial{ScaleColor(MixColor(VisualStyleColor(style, VisualStyleColorRole::Hud), Vec3{0.30f, 0.085f, 0.66f}, 0.58f), 0.68f), 0.065f + style.glow * 0.052f};
-    materials[6] = EntityMaterial{Vec3{0.120f, 0.360f, 0.700f}, 0.34f};
-    materials[7] = EntityMaterial{ScaleColor(MixColor(control, Vec3{0.045f, 0.74f, 0.54f}, 0.42f), 0.78f), 0.30f + style.glow * 0.090f};
-    materials[8] = EntityMaterial{ScaleColor(MixColor(light, Vec3{0.78f, 0.16f, 0.52f}, 0.44f), 0.74f), 0.12f + style.glow * 0.060f};
-    materials[9] = EntityMaterial{ScaleColor(MixColor(corridor, floor, 0.42f), 0.80f), 0.004f + style.wetness * 0.014f};
-    materials[10] = EntityMaterial{ScaleColor(light, 0.86f), 0.36f + style.glow * 0.090f};
-    materials[11] = EntityMaterial{ScaleColor(MixColor(control, Vec3{0.18f, 0.82f, 0.68f}, 0.36f), 0.68f), 0.135f + style.glow * 0.052f};
-    materials[12] = EntityMaterial{ScaleColor(foliage, 0.50f), 0.002f + style.moss * 0.004f};
-    materials[13] = EntityMaterial{MixColor(Vec3{0.48f, 0.58f, 0.70f}, floor, 0.25f), 0.09f + style.wetness * 0.055f};
-    materials[14] = EntityMaterial{ScaleColor(MixColor(Vec3{0.090f, 0.040f, 0.066f}, danger, 0.46f), 0.70f), 0.22f + style.corruption * 0.075f};
+    materials[0] = EntityMaterial{ScaleColor(MixColor(floor, light, sunlitStyle ? 0.028f : 0.025f), sunlitStyle ? 0.70f : 0.84f), 0.020f + style.wetness * 0.110f};
+    materials[1] = EntityMaterial{ScaleColor(MixColor(wall, light, sunlitStyle ? 0.012f : 0.030f), sunlitStyle ? 0.54f : 0.92f), 0.010f + darkGlow * 0.038f};
+    materials[2] = EntityMaterial{Vec3{0.004f, 0.018f, 0.050f}, 0.014f + style.glow * 0.010f};
+    materials[3] = EntityMaterial{ScaleColor(MixColor(light, Vec3{0.16f, 0.96f, 1.00f}, 0.70f), 1.05f), 0.42f + style.glow * 0.130f};
+    materials[4] = EntityMaterial{ScaleColor(MixColor(Vec3{0.235f, 0.105f, 0.074f}, danger, 0.52f), 1.04f), 0.065f + style.corruption * 0.070f};
+    materials[5] = EntityMaterial{ScaleColor(MixColor(VisualStyleColor(style, VisualStyleColorRole::Hud), Vec3{0.58f, 0.145f, 0.98f}, 0.72f), 1.05f), 0.145f + style.glow * 0.095f};
+    materials[6] = EntityMaterial{Vec3{0.190f, 0.500f, 0.940f}, 0.44f};
+    materials[7] = EntityMaterial{ScaleColor(MixColor(control, Vec3{0.070f, 0.90f, 0.64f}, 0.50f), 1.02f), 0.38f + style.glow * 0.115f};
+    materials[8] = EntityMaterial{ScaleColor(MixColor(light, Vec3{0.98f, 0.24f, 0.66f}, 0.50f), 1.00f), 0.18f + style.glow * 0.080f};
+    materials[9] = EntityMaterial{ScaleColor(MixColor(corridor, floor, 0.52f), 0.84f), 0.020f + style.wetness * 0.046f};
+    materials[10] = EntityMaterial{ScaleColor(light, 1.04f), 0.36f + style.glow * 0.085f};
+    materials[11] = EntityMaterial{ScaleColor(MixColor(control, Vec3{0.24f, 0.96f, 0.82f}, 0.52f), 1.04f), 0.220f + style.glow * 0.090f};
+    materials[12] = EntityMaterial{ScaleColor(foliage, sunlitStyle ? 1.20f : 1.02f), 0.010f + style.moss * 0.012f};
+    materials[13] = EntityMaterial{MixColor(Vec3{0.42f, 0.52f, 0.56f}, floor, 0.24f), 0.125f + style.wetness * 0.060f};
+    materials[14] = EntityMaterial{ScaleColor(MixColor(Vec3{0.205f, 0.060f, 0.130f}, danger, 0.64f), 1.06f), 0.38f + style.corruption * 0.125f};
     return materials;
 }
 
@@ -321,7 +322,7 @@ uint32_t AtlasForAction(AttackShape shape, Element element) {
     case AttackShape::Burst:
     case AttackShape::Orbit:
     case AttackShape::TargetArea:
-        return element == Element::Stone ? 6u : 0u;
+        return 0u;
     case AttackShape::Projectile:
         return AtlasForElement(element);
     }
@@ -483,15 +484,15 @@ void AddActorStatusSprites(
         const Element element = StatusSpriteElement(status);
         const uint32_t seed = SpriteSeed(frameIndex, localIndex++, salt + static_cast<uint32_t>(status.kind) * 13u);
         const float phase = SpriteHash01(seed) * 6.2831853f + timeSeconds * (1.8f + SpriteHash01(seed >> 1u));
-        const float orbit = 0.20f + SpriteHash01(seed >> 3u) * 0.18f;
+        const float orbit = 0.085f + SpriteHash01(seed >> 3u) * 0.070f;
         const Vec2 offset{std::cos(phase) * orbit, std::sin(phase) * orbit};
         AddWorldSprite(
             scene,
             viewProj,
             WorldFromGround(position + offset, height + 0.16f + SpriteHash01(seed >> 5u) * 0.20f),
-            0.105f + status.intensity * 0.035f,
+            0.034f + status.intensity * 0.012f,
             ElementSpriteColor(element),
-            Clamp(0.22f + status.intensity * 0.12f, 0.12f, 0.42f),
+            Clamp(0.040f + status.intensity * 0.030f, 0.025f, 0.095f),
             AtlasForElement(element),
             seed,
             phase,
@@ -525,9 +526,9 @@ void BuildRenderSprites(
         scene,
         viewProj,
         weaponWorld,
-        0.28f,
+        0.32f,
         weaponColor,
-        player.actionTimer > 0.0f ? 0.58f : 0.38f,
+        player.actionTimer > 0.0f ? 0.68f : 0.44f,
         AtlasForElement(weaponElement),
         SpriteSeed(frameIndex, 0u, 19u),
         weaponRotation,
@@ -559,14 +560,14 @@ void BuildRenderSprites(
             actionAlpha = Clamp(0.28f + impactPulse * 0.24f, 0.18f, 0.56f);
             break;
         case AttackShape::TargetArea:
-            actionWorldRadius = Clamp(std::max(action.radius, 0.30f) * 0.34f, 0.16f, 0.42f);
-            actionAlpha = Clamp(0.22f + impactPulse * 0.22f, 0.14f, 0.48f);
+            actionWorldRadius = Clamp(std::max(action.radius, 0.30f) * 0.24f, 0.12f, 0.30f);
+            actionAlpha = Clamp(0.13f + impactPulse * 0.16f, 0.08f, 0.30f);
             break;
         case AttackShape::Circle:
         case AttackShape::Burst:
         case AttackShape::Orbit:
-            actionWorldRadius = Clamp(std::max(action.radius, 0.30f) * (0.18f + impactPulse * 0.06f), 0.12f, 0.32f);
-            actionAlpha = Clamp(0.14f + impactPulse * 0.20f, 0.10f, 0.38f);
+            actionWorldRadius = Clamp(std::max(action.radius, 0.30f) * (0.060f + impactPulse * 0.024f), 0.052f, 0.135f);
+            actionAlpha = Clamp(0.032f + impactPulse * 0.068f, 0.020f, 0.120f);
             break;
         }
         AddWorldSprite(
@@ -612,13 +613,15 @@ void BuildRenderSprites(
         const float rotation = ScreenRotationForDirection(viewProj, pulse.position, direction, displayWidth, displayHeight);
         const Vec3 color = ColorForVfxKind(pulse.kind);
         const uint32_t seed = SpriteSeed(frameIndex, pulseIndex, 41u);
+        const float pulseRadiusMax =
+            (pulse.kind == RenderVfxKind::WeaponRing || pulse.kind == RenderVfxKind::WeaponBurst) ? 0.62f : 1.20f;
         AddWorldSprite(
             scene,
             viewProj,
             Vec3{pulse.position.x, pulse.position.y + progress * 0.14f, pulse.position.z},
-            Clamp(pulse.radius * (0.50f + progress * 0.26f), 0.11f, 1.20f),
+            Clamp(pulse.radius * (0.42f + progress * 0.18f), 0.09f, pulseRadiusMax),
             color,
-            Clamp((0.30f + pulse.intensity * 0.22f) * life, 0.0f, 0.72f),
+            Clamp((0.24f + pulse.intensity * 0.18f) * life, 0.0f, 0.58f),
             AtlasForVfxKind(pulse.kind),
             seed,
             rotation + progress * 0.85f,
@@ -666,8 +669,6 @@ void BuildRenderSprites(
             displayWidth,
             displayHeight);
     }
-
-    AddActorStatusSprites(scene, viewProj, player.statuses, player.position, 0.82f, timeSeconds, frameIndex, 67u, displayWidth, displayHeight);
 
     uint32_t enemyIndex = 0u;
     for (const EnemyState& enemy : combat.Enemies()) {
@@ -728,6 +729,8 @@ RenderScene BuildRenderScene(
 
     scene.visualStyle = BuildVisualStyle(world, player.roomIndex);
     scene.visualStylePacked = PackVisualStyle(scene.visualStyle);
+    scene.shotLayout = BuildShotLayout(world, player.roomIndex, scene.visualStyle);
+    scene.shotLayoutPacked = PackShotLayout(scene.shotLayout);
 
     const DirectX::XMMATRIX viewProj = UpdateCamera(scene, world, combat, outputWidth, outputHeight);
     scene.frame.cameraPosition[0] = scene.camera.position.x;
@@ -744,7 +747,9 @@ RenderScene BuildRenderScene(
     scene.frame.visualStyleSurface = scene.visualStylePacked.surface;
     scene.frame.visualStyleAtmosphere = scene.visualStylePacked.atmosphere;
     scene.frame.visualStyleVariant = scene.visualStylePacked.variant;
-    scene.frame.renderQuality = std::min(renderQuality, 2u);
+    scene.frame.shotLayoutIdentity = scene.shotLayoutPacked.identity;
+    scene.frame.shotLayoutWeights = scene.shotLayoutPacked.weights;
+    scene.frame.renderQuality = std::min(renderQuality, 5u);
     scene.overlay.overlayWeaponId = static_cast<uint32_t>(player.weaponSlots[activeSlot].weapon);
     scene.overlay.overlayElementId = static_cast<uint32_t>(player.weaponSlots[activeSlot].element);
     scene.overlay.overlayActiveSlot = static_cast<uint32_t>(activeSlot + 1);
@@ -784,7 +789,7 @@ RenderScene BuildRenderScene(
     scene.proxies = BuildEntityProxies(combat);
     std::vector<EntityRTProxy> vfxProxies = BuildVfxProxies(transientVfx);
     scene.proxies.insert(scene.proxies.end(), vfxProxies.begin(), vfxProxies.end());
-    scene.generatedGeometry = GenerateWorldGeometry(world, &scene.visualStyle, player.roomIndex);
+    scene.generatedGeometry = GenerateWorldGeometry(world, &scene.visualStyle, player.roomIndex, &scene.shotLayout);
     GeneratedRTGeometry entityGeometry = GenerateRTGeometry(scene.proxies);
     scene.generatedGeometry.triangles.insert(
         scene.generatedGeometry.triangles.end(),

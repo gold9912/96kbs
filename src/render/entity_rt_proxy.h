@@ -51,7 +51,7 @@ enum class RenderVfxKind : uint8_t {
     WeaponBurst
 };
 
-constexpr int kMaxRenderVfxPulses = 32;
+constexpr int kMaxRenderVfxPulses = 48;
 
 struct RenderVfxPulse {
     RenderVfxKind kind = RenderVfxKind::HitSpark;
@@ -83,6 +83,7 @@ struct RtTriangle {
     RtVertex b{};
     RtVertex c{};
     uint32_t materialId = 0;
+    uint32_t styleTag = 0;
 };
 
 struct GeneratedRTGeometry {
@@ -98,6 +99,10 @@ struct PackedRtVertex {
 struct RtTriangleMetadata {
     Vec3 normal{};
     uint32_t materialId = 0;
+    uint32_t styleTag = 0;
+    uint32_t reserved0 = 0;
+    uint32_t reserved1 = 0;
+    uint32_t reserved2 = 0;
 };
 
 struct PackedRTGeometry {
@@ -106,9 +111,17 @@ struct PackedRTGeometry {
     std::vector<RtTriangleMetadata> triangleMetadata;
 };
 
-std::vector<EntityRTProxy> BuildEntityProxies(const CombatSim& sim);
+std::vector<EntityRTProxy> BuildEntityProxies(
+    const CombatSim& sim,
+    const RoomGraph* world = nullptr,
+    bool referenceTarget = false);
 std::vector<EntityRTProxy> BuildVfxProxies(std::span<const RenderVfxPulse> pulses);
-GeneratedRTGeometry GenerateWorldGeometry(const RoomGraph& world, const RoomVisualStyle* style = nullptr, int focusRoomIndex = -1);
+GeneratedRTGeometry GenerateWorldGeometry(
+    const RoomGraph& world,
+    const RoomVisualStyle* style = nullptr,
+    int focusRoomIndex = -1,
+    const ShotLayout* shotLayout = nullptr,
+    bool referenceTarget = false);
 GeneratedRTGeometry GenerateRTGeometry(std::span<const EntityRTProxy> proxies);
 PackedRTGeometry PackRTGeometry(const GeneratedRTGeometry& geometry);
 uint32_t HashPackedRTGeometry(const PackedRTGeometry& geometry);

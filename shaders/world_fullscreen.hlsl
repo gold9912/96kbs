@@ -48,9 +48,9 @@ cbuffer WorldConstants : register(b0) {
     uint gFloorIndex;
     uint gDescentPercent;
     uint gSpriteCount;
-    uint gReserved1;
-    uint gReserved2;
-    uint gReserved3;
+    uint gShotLayoutIdentity;
+    uint gShotLayoutWeights;
+    uint gRenderQuality;
 };
 
 float hash21(float2 p) {

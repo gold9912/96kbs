@@ -2089,7 +2089,7 @@ bool TestEnemyActionVisualLanguageContract() {
     };
 
     bool ok = true;
-    ok &= runEnemy(0, 1.20f, rogue::EntityProxyKind::EnemyTellRing, 2, "brute enters hammer windup", "brute windup uses heavy rings");
+    ok &= runEnemy(0, 1.20f, rogue::EntityProxyKind::EnemyTellCone, 1, "brute enters hammer windup", "brute windup uses local cone slash");
     ok &= runEnemy(1, 4.40f, rogue::EntityProxyKind::EnemyTellLine, 1, "caster enters staff cast", "caster cast uses line footprint");
     ok &= runEnemy(2, 3.20f, rogue::EntityProxyKind::EnemyTellLine, 2, "skirmisher enters wave cast", "skirmisher cast uses double line footprint");
     ok &= runEnemy(3, 2.40f, rogue::EntityProxyKind::EnemyTellCone, 1, "bulwark enters shotgun windup", "bulwark windup uses cone footprint");
@@ -2109,7 +2109,8 @@ bool TestEnemyActionVisualLanguageContract() {
         bossSim.Tick(rogue::InputState{}, 1.0f / 60.0f, bossWorld);
         const auto bossProxies = rogue::BuildEntityProxies(bossSim);
         ok &= Expect(bossSim.Enemies()[bossIndex].actionTimer > 0.0f, "boss enters active action interval");
-        ok &= Expect(CountProxyKind(bossProxies, rogue::EntityProxyKind::EnemyTellRing) >= 2, "boss target mark uses layered rings");
+        ok &= Expect(CountProxyKind(bossProxies, rogue::EntityProxyKind::EnemyTellLine) >= 1, "boss target mark uses local weapon streak");
+        ok &= Expect(CountEnemyTellProxies(bossProxies) >= 2, "boss target mark keeps layered danger footprint without oversized rings");
     }
     return ok;
 }
@@ -4068,12 +4069,164 @@ bool TestReferenceArenaFramingContract() {
     bool ok = true;
     ok &= Expect(targetDx < room.halfSize.x * 0.18f, "reference camera targets active room instead of hard-locking to player x");
     ok &= Expect(targetDz < room.halfSize.y * 0.18f, "reference camera targets active room instead of hard-locking to player z");
-    ok &= Expect(scene.camera.position.y >= 18.0f, "reference camera uses high isometric arena height");
+    ok &= Expect(scene.camera.position.y >= 14.0f, "reference camera uses lower cinematic isometric arena height");
     ok &= Expect(pullbackZ >= room.halfSize.y * 2.35f, "reference camera pulls back enough to show room edges");
     ok &= Expect(sideOffset >= room.halfSize.x * 0.32f, "reference camera keeps a diagonal isometric side offset");
     ok &= Expect(scene.camera.tiltRadians > 0.98f, "reference camera stores steeper tilt intent");
     ok &= Expect(scene.generatedGeometry.triangles.size() < fullStyledGeometry.triangles.size(), "render scene focuses RT arena geometry to the active room");
     ok &= Expect(scene.generatedGeometry.triangles.size() > 90u, "focused RT arena still keeps procedural room detail");
+    return ok;
+}
+
+bool TestShotLayoutContract() {
+    rogue::RoomGraph world = rogue::GenerateWorld(0x96u);
+    rogue::CombatSim sim;
+    sim.Reset(world);
+
+    constexpr int roomIndex = 1;
+    world.rooms[roomIndex].locked = false;
+    world.rooms[roomIndex].lifecycle = rogue::RoomLifecycle::Active;
+    sim.PlacePlayer(world.rooms[roomIndex].center, roomIndex);
+
+    const rogue::RoomVisualStyle style = rogue::BuildVisualStyle(world, roomIndex);
+    const rogue::ShotLayout layout = rogue::BuildShotLayout(world, roomIndex, style);
+    const rogue::ShotLayoutPacked packed = rogue::PackShotLayout(layout);
+    const rogue::RenderScene scene = rogue::BuildRenderScene(world, sim, 1280, 720, 1.0f, 33u);
+    const auto restagedGeometry = rogue::GenerateWorldGeometry(world, &style, roomIndex, &layout);
+    const auto restagedPackedA = rogue::PackRTGeometry(restagedGeometry);
+    const auto restagedPackedB = rogue::PackRTGeometry(rogue::GenerateWorldGeometry(world, &style, roomIndex, &layout));
+
+    bool ok = true;
+    ok &= Expect(rogue::ShotLayoutPackedNibble(packed.identity, rogue::kShotLayoutWindowFrameShift) >= 1u, "shot layout stores a window frame side");
+    ok &= Expect(rogue::ShotLayoutPackedWeight(packed.weights, rogue::kShotLayoutCombatClearShift) >= 0.45f, "shot layout keeps a clear combat center");
+    ok &= Expect(rogue::ShotLayoutPackedWeight(packed.weights, rogue::kShotLayoutEdgeDensityShift) >= 0.40f, "shot layout keeps dense arena edges");
+    ok &= Expect(rogue::ShotLayoutPackedWeight(packed.weights, rogue::kShotLayoutHeroVfxBiasShift) >= 0.50f, "shot layout reserves hero VFX emphasis");
+    ok &= Expect(scene.frame.shotLayoutIdentity == scene.shotLayoutPacked.identity, "render scene frame stores packed shot identity");
+    ok &= Expect(scene.frame.shotLayoutWeights == scene.shotLayoutPacked.weights, "render scene frame stores packed shot weights");
+    ok &= Expect(scene.generatedGeometry.triangles.size() > 120u, "shot layout staged geometry keeps arena detail");
+    ok &= Expect(rogue::HashPackedRTGeometry(restagedPackedA) == rogue::HashPackedRTGeometry(restagedPackedB), "shot layout geometry hash is deterministic");
+    return ok;
+}
+
+bool TestActorPoseStateContract() {
+    rogue::RoomGraph world = rogue::GenerateWorld(0x96u);
+    constexpr int roomIndex = 1;
+    KeepOnlyRoomSpawn(world, roomIndex, world.rooms[roomIndex].center + rogue::Vec2{4.80f, 0.0f}, 0);
+    world.rooms[roomIndex].locked = false;
+    world.rooms[roomIndex].lifecycle = rogue::RoomLifecycle::Active;
+
+    rogue::CombatSim sim;
+    sim.Reset(world);
+    sim.PlacePlayer(world.rooms[roomIndex].center, roomIndex);
+    sim.ActivateEnemiesInRoom(roomIndex);
+
+    rogue::InputState input{};
+    input.moveX = 1.0f;
+    input.aimX = 1.0f;
+    sim.Tick(input, 1.0f / 30.0f, world);
+
+    const int enemyIndex = FirstLivingEnemyInRoom(sim, roomIndex);
+    const auto proxies = rogue::BuildEntityProxies(sim);
+    const rogue::EntityRTProxy* playerCore = FindProxyKind(proxies, rogue::EntityProxyKind::PlayerCore);
+
+    bool ok = true;
+    ok &= Expect(rogue::LengthSq(sim.Player().velocity) > 0.01f, "player visual state records velocity");
+    ok &= Expect(sim.Player().movePhase > 0.0f, "player visual state advances locomotion phase");
+    ok &= Expect(enemyIndex >= 0, "actor pose state test finds active enemy");
+    if (enemyIndex >= 0) {
+        ok &= Expect(rogue::LengthSq(sim.Enemies()[enemyIndex].velocity) > 0.01f, "enemy visual state records velocity");
+        ok &= Expect(sim.Enemies()[enemyIndex].movePhase > 0.0f, "enemy visual state advances locomotion phase");
+    }
+    ok &= Expect(playerCore != nullptr && playerCore->phase > 0.0f, "player proxy receives idle or locomotion pose phase");
+    return ok;
+}
+
+bool TestHitReactVisualState() {
+    rogue::RoomGraph world = rogue::GenerateWorld(0x96u);
+    constexpr int roomIndex = 1;
+    KeepOnlyRoomSpawn(world, roomIndex, world.rooms[roomIndex].center + rogue::Vec2{0.95f, 0.0f}, 2);
+    world.rooms[roomIndex].locked = false;
+    world.rooms[roomIndex].lifecycle = rogue::RoomLifecycle::Active;
+
+    rogue::CombatSim sim;
+    sim.Reset(world);
+    sim.PlacePlayer(world.rooms[roomIndex].center, roomIndex);
+    sim.ActivateEnemiesInRoom(roomIndex);
+    const int enemyIndex = FirstLivingEnemyInRoom(sim, roomIndex);
+    const int killed = sim.DamageEnemiesInRoom(roomIndex, 1.0f);
+    const auto proxies = rogue::BuildEntityProxies(sim);
+    const rogue::EntityRTProxy* enemyProxy = FindProxyKind(proxies, rogue::EntityProxyKind::EnemySkirmisher);
+
+    bool ok = true;
+    ok &= Expect(enemyIndex >= 0, "hit reaction test finds a target");
+    ok &= Expect(killed == 0, "hit reaction test keeps target alive");
+    if (enemyIndex >= 0) {
+        ok &= Expect(sim.Enemies()[enemyIndex].hitReactTimer > 0.0f, "enemy stores hit reaction timer after damage");
+        ok &= Expect(rogue::LengthSq(sim.Enemies()[enemyIndex].hitReactDirection) > 0.50f, "enemy stores hit reaction direction");
+        ok &= Expect(sim.Enemies()[enemyIndex].lastHitElement == rogue::Element::Stone, "enemy stores last hit element");
+    }
+    ok &= Expect(enemyProxy != nullptr && enemyProxy->phase > 0.70f, "hit reaction lifts enemy proxy into impact pose phase");
+    return ok;
+}
+
+bool TestStyleTagPacking() {
+    rogue::RoomGraph world = rogue::GenerateWorld(0x96u);
+    rogue::CombatSim sim;
+    sim.Reset(world);
+    const rogue::RenderScene sceneA = rogue::BuildRenderScene(world, sim, 1280, 720, 1.0f, 41u);
+    const rogue::RenderScene sceneB = rogue::BuildRenderScene(world, sim, 1280, 720, 1.0f, 41u);
+
+    std::size_t nonzeroTags = 0;
+    for (const rogue::RtTriangleMetadata& metadata : sceneA.packedGeometry.triangleMetadata) {
+        if (metadata.styleTag != 0u) {
+            ++nonzeroTags;
+        }
+    }
+
+    bool ok = true;
+    ok &= Expect(!sceneA.packedGeometry.triangleMetadata.empty(), "style tag packing has triangle metadata");
+    ok &= Expect(nonzeroTags > 0u, "style tag packing writes nonzero surface role tags");
+    ok &= Expect(sceneA.geometryHash == sceneB.geometryHash, "style tagged geometry hash remains deterministic");
+    ok &= Expect(sceneA.geometryHash == rogue::HashPackedRTGeometry(sceneA.packedGeometry), "style tags participate in packed geometry hash");
+    return ok;
+}
+
+bool TestVfxBudgetDoesNotOverflow() {
+    rogue::RoomGraph world = rogue::GenerateWorld(0x96u);
+    rogue::CombatSim sim;
+    sim.Reset(world);
+
+    std::array<rogue::RenderVfxPulse, rogue::kMaxRenderVfxPulses> pulses{};
+    const rogue::Vec2 center = world.rooms[0].center;
+    for (int i = 0; i < rogue::kMaxRenderVfxPulses; ++i) {
+        const float ring = static_cast<float>(i % 8) * 0.26f;
+        const float row = static_cast<float>(i / 8) * 0.18f;
+        pulses[static_cast<std::size_t>(i)] = rogue::RenderVfxPulse{
+            i % 3 == 0 ? rogue::RenderVfxKind::WeaponCone : (i % 3 == 1 ? rogue::RenderVfxKind::HitSpark : rogue::RenderVfxKind::WeaponLine),
+            rogue::Vec3{center.x + ring, 0.12f, center.y + row},
+            0.85f + static_cast<float>(i % 5) * 0.08f,
+            0.24f,
+            0.32f,
+            1.0f,
+            rogue::Vec3{1.0f, 0.0f, 0.0f}
+        };
+    }
+
+    const rogue::RenderScene scene = rogue::BuildRenderScene(
+        world,
+        sim,
+        1280,
+        720,
+        1.0f,
+        52u,
+        std::span<const rogue::RenderVfxPulse>(pulses.data(), pulses.size()));
+
+    bool ok = true;
+    ok &= Expect(rogue::kMaxRenderSprites == 128, "render sprite budget is raised to 128");
+    ok &= Expect(rogue::kMaxRenderVfxPulses == 48, "fixed VFX pulse budget is raised to 48");
+    ok &= Expect(scene.spriteCount <= rogue::kMaxRenderSprites, "render scene does not overflow sprite budget");
+    ok &= Expect(scene.spriteCount >= static_cast<uint32_t>(rogue::kMaxRenderVfxPulses), "render scene keeps all fixed VFX pulses visible in sprite budget");
+    ok &= Expect(scene.proxies.size() > rogue::kMaxRenderVfxPulses, "VFX budget feeds transient geometry proxies");
     return ok;
 }
 
@@ -4149,7 +4302,7 @@ bool TestRenderSceneContract() {
     ok &= Expect(scene.frame.visualStyleSurface == scene.visualStylePacked.surface, "render scene frame stores visual surface weights");
     ok &= Expect(scene.frame.visualStyleAtmosphere == scene.visualStylePacked.atmosphere, "render scene frame stores visual atmosphere weights");
     ok &= Expect(scene.frame.visualStyleVariant == scene.visualStylePacked.variant, "render scene frame stores visual variant");
-    ok &= Expect(scene.frame.renderQuality == 2u, "render scene defaults to rich DXR quality");
+    ok &= Expect(scene.frame.renderQuality == 5u, "render scene defaults to reference PT DXR quality");
     ok &= Expect(scene.visualStyle.biome == rogue::VisualBiome::SunlitRuins, "render scene computes current room visual style");
     ok &= Expect(scene.overlay.overlayWeaponId == static_cast<uint32_t>(rogue::WeaponId::Katana), "render scene stores HUD weapon id");
     ok &= Expect(scene.overlay.overlayActiveSlot == 1u, "render scene stores HUD active slot");
@@ -4229,6 +4382,34 @@ bool TestRenderSceneContract() {
     ok &= Expect(scaledScene.frame.displayWidth == 3840u, "render scene stores display width separately");
     ok &= Expect(scaledScene.frame.displayHeight == 2160u, "render scene stores display height separately");
     ok &= Expect(scaledScene.frame.renderQuality == 1u, "render scene stores explicit DXR quality tier");
+
+    const rogue::RenderScene ptScene = rogue::BuildRenderScene(
+        world,
+        sim,
+        1280,
+        720,
+        1.86f,
+        15u,
+        std::span<const rogue::RenderVfxPulse>{},
+        static_cast<uint32_t>(rogue::RunStatus::InProgress),
+        1280,
+        720,
+        5u);
+    ok &= Expect(ptScene.frame.renderQuality == 5u, "render scene stores reference PT quality tier");
+
+    const rogue::RenderScene clampedScene = rogue::BuildRenderScene(
+        world,
+        sim,
+        1280,
+        720,
+        1.90f,
+        16u,
+        std::span<const rogue::RenderVfxPulse>{},
+        static_cast<uint32_t>(rogue::RunStatus::InProgress),
+        1280,
+        720,
+        99u);
+    ok &= Expect(clampedScene.frame.renderQuality == 5u, "render scene clamps DXR quality at the reference PT tier");
 
     rogue::RoomGraph bossWorld = rogue::GenerateWorld(0x96u);
     KeepOnlyFinalBossSpawn(bossWorld);
@@ -4375,6 +4556,11 @@ int main() {
     run("procedural prop grammar geometry", TestProceduralPropGrammarGeometry);
     run("visual style layer contract", TestVisualStyleLayerContract);
     run("reference arena framing contract", TestReferenceArenaFramingContract);
+    run("shot layout contract", TestShotLayoutContract);
+    run("actor pose state contract", TestActorPoseStateContract);
+    run("hit react visual state", TestHitReactVisualState);
+    run("style tag packing", TestStyleTagPacking);
+    run("vfx budget does not overflow", TestVfxBudgetDoesNotOverflow);
     run("floor depth progression contract", TestFloorDepthProgressionContract);
     run("render scene contract", TestRenderSceneContract);
     run("render scene vfx contract", TestRenderSceneVfxContract);

@@ -40,8 +40,12 @@ Vec3 Cross(Vec3 a, Vec3 b) {
     };
 }
 
+float LengthSq(Vec3 v) {
+    return v.x * v.x + v.y * v.y + v.z * v.z;
+}
+
 Vec3 Normalize(Vec3 v) {
-    const float lenSq = v.x * v.x + v.y * v.y + v.z * v.z;
+    const float lenSq = LengthSq(v);
     if (lenSq <= 0.000001f) {
         return Vec3{0.0f, 1.0f, 0.0f};
     }
@@ -98,13 +102,87 @@ float Smooth01(float value) {
     return t * t * (3.0f - 2.0f * t);
 }
 
+uint32_t StyleRoleForMaterial(uint32_t materialId) {
+    switch (materialId) {
+    case kMaterialFloor:
+    case kMaterialCorridor:
+        return 1u;
+    case kMaterialWall:
+        return 2u;
+    case kMaterialPlayerCore:
+    case kMaterialPlayerBlade:
+        return 3u;
+    case kMaterialEnemyBrute:
+    case kMaterialEnemyCaster:
+    case kMaterialEnemySkirmisher:
+    case kMaterialEnemyBulwark:
+    case kMaterialEnemyBoss:
+        return 4u;
+    case kMaterialHitSpark:
+    case kMaterialRoomPulse:
+    case kMaterialPortal:
+    case kMaterialProjectile:
+    case kMaterialControl:
+        return 5u;
+    default:
+        return 0u;
+    }
+}
+
+uint32_t ElementTokenForMaterial(uint32_t materialId) {
+    switch (materialId) {
+    case kMaterialHitSpark:
+    case kMaterialRoomPulse:
+        return 1u;
+    case kMaterialEnemyBulwark:
+        return 2u;
+    case kMaterialProjectile:
+    case kMaterialPlayerBlade:
+    case kMaterialControl:
+        return 3u;
+    case kMaterialEnemyCaster:
+    case kMaterialEnemyBoss:
+        return 4u;
+    case kMaterialPortal:
+        return 5u;
+    default:
+        return 6u;
+    }
+}
+
+uint32_t SurfaceTokenForNormal(Vec3 normal) {
+    if (normal.y > 0.72f) {
+        return 1u;
+    }
+    if (normal.y < -0.35f) {
+        return 3u;
+    }
+    return 2u;
+}
+
+uint32_t DefaultStyleTag(uint32_t materialId, Vec3 normal) {
+    const uint32_t role = StyleRoleForMaterial(materialId);
+    const uint32_t element = ElementTokenForMaterial(materialId);
+    const uint32_t surface = SurfaceTokenForNormal(normal);
+    const uint32_t emissive = (materialId == kMaterialHitSpark ||
+        materialId == kMaterialRoomPulse ||
+        materialId == kMaterialPortal ||
+        materialId == kMaterialProjectile ||
+        materialId == kMaterialControl) ? 1u : 0u;
+    return (role & 0xfu) |
+        ((element & 0xfu) << 4u) |
+        ((surface & 0xfu) << 8u) |
+        ((emissive & 0xfu) << 12u);
+}
+
 void AddTri(GeneratedRTGeometry& geo, Vec3 a, Vec3 b, Vec3 c, uint32_t materialId) {
     const Vec3 n = Normalize(Cross(Sub(b, a), Sub(c, a)));
     geo.triangles.push_back(RtTriangle{
         RtVertex{a, n},
         RtVertex{b, n},
         RtVertex{c, n},
-        materialId
+        materialId,
+        DefaultStyleTag(materialId, n)
     });
 }
 
@@ -185,16 +263,19 @@ void AddFloor(GeneratedRTGeometry& geo, Vec2 center, Vec2 halfSize, uint32_t mat
 }
 
 void AddRoomBorders(GeneratedRTGeometry& geo, const Room& room) {
-    constexpr float kThickness = 0.42f;
-    constexpr float kHeight = 1.18f;
+    constexpr float kThickness = 0.46f;
+    constexpr float kHeight = 3.32f;
+    constexpr float kNearHeight = 0.24f;
     const float x0 = room.center.x - room.halfSize.x;
     const float x1 = room.center.x + room.halfSize.x;
     const float z0 = room.center.y - room.halfSize.y;
     const float z1 = room.center.y + room.halfSize.y;
-    AddBox(geo, Vec3{x0 - kThickness, 0.0f, z0 - kThickness}, Vec3{x1 + kThickness, kHeight, z0}, kMaterialWall);
+    AddBox(geo, Vec3{x0 - kThickness, 0.0f, z0 - kThickness}, Vec3{x1 + kThickness, kNearHeight, z0}, kMaterialWall);
     AddBox(geo, Vec3{x0 - kThickness, 0.0f, z1}, Vec3{x1 + kThickness, kHeight, z1 + kThickness}, kMaterialWall);
-    AddBox(geo, Vec3{x0 - kThickness, 0.0f, z0}, Vec3{x0, kHeight, z1}, kMaterialWall);
+    AddBox(geo, Vec3{x0 - kThickness, 0.0f, z0}, Vec3{x0, kNearHeight, z1}, kMaterialWall);
     AddBox(geo, Vec3{x1, 0.0f, z0}, Vec3{x1 + kThickness, kHeight, z1}, kMaterialWall);
+    AddBox(geo, Vec3{x0 - kThickness * 1.18f, kHeight - 0.10f, z1 - 0.08f}, Vec3{x1 + kThickness * 1.18f, kHeight + 0.10f, z1 + kThickness * 1.12f}, kMaterialWall);
+    AddBox(geo, Vec3{x1 - 0.08f, kHeight - 0.10f, z0 - kThickness * 1.18f}, Vec3{x1 + kThickness * 1.12f, kHeight + 0.10f, z1 + kThickness * 1.18f}, kMaterialWall);
 }
 
 void AddCorridor(GeneratedRTGeometry& geo, Vec2 a, Vec2 b, float halfWidth) {
@@ -780,21 +861,21 @@ void AddRaisedWallScaffold(GeneratedRTGeometry& geo, const Room& room, const Roo
     const float z0 = room.center.y - room.halfSize.y;
     const float z1 = room.center.y + room.halfSize.y;
     const bool dramatic = style.biome == VisualBiome::ArcaneLibrary || style.biome == VisualBiome::AbyssCrypt;
-    const float wallHeight = 1.72f + style.decay * 0.56f + style.corruption * 0.50f +
-        (dramatic ? 0.52f : 0.24f);
-    const float ledge = 0.30f;
-    AddBox(geo, Vec3{x0 + 0.55f, 0.00f, z0 + 0.10f}, Vec3{x1 - 0.55f, wallHeight, z0 + ledge}, kMaterialWall);
+    const float wallHeight = 2.82f + style.decay * 0.72f + style.corruption * 0.62f +
+        (dramatic ? 0.78f : 0.42f);
+    const float ledge = 0.38f;
+    AddBox(geo, Vec3{x0 + 0.55f, 0.00f, z0 + 0.10f}, Vec3{x1 - 0.55f, 0.26f, z0 + ledge}, kMaterialWall);
     AddBox(geo, Vec3{x0 + 0.55f, 0.00f, z1 - ledge}, Vec3{x1 - 0.55f, wallHeight, z1 - 0.10f}, kMaterialWall);
-    AddBox(geo, Vec3{x0 + 0.10f, 0.00f, z0 + 0.55f}, Vec3{x0 + ledge, wallHeight * 0.92f, z1 - 0.55f}, kMaterialWall);
+    AddBox(geo, Vec3{x0 + 0.10f, 0.00f, z0 + 0.55f}, Vec3{x0 + ledge, 0.24f, z1 - 0.55f}, kMaterialWall);
     AddBox(geo, Vec3{x1 - ledge, 0.00f, z0 + 0.55f}, Vec3{x1 - 0.10f, wallHeight * 0.96f, z1 - 0.55f}, kMaterialWall);
 
     const float crownY = wallHeight + 0.045f + style.glow * 0.025f;
-    AddBox(geo, Vec3{x0 + 0.42f, wallHeight - 0.070f, z0 + 0.06f}, Vec3{x1 - 0.42f, crownY, z0 + ledge + 0.070f}, kMaterialWall);
     AddBox(geo, Vec3{x0 + 0.42f, wallHeight - 0.070f, z1 - ledge - 0.070f}, Vec3{x1 - 0.42f, crownY, z1 - 0.06f}, kMaterialWall);
+    AddBox(geo, Vec3{x1 - ledge - 0.070f, wallHeight * 0.90f - 0.070f, z0 + 0.42f}, Vec3{x1 - 0.06f, wallHeight * 0.96f + 0.08f, z1 - 0.42f}, kMaterialWall);
 
     const uint32_t glowMaterial = style.descent > 0.72f ? kMaterialHitSpark : kMaterialWall;
-    AddGuideStrip(geo, Vec3{room.center.x, wallHeight + 0.018f, z0 + ledge + 0.015f}, Vec3{1.0f, 0.0f, 0.0f}, room.halfSize.x * 1.58f, 0.016f, glowMaterial);
     AddGuideStrip(geo, Vec3{room.center.x, wallHeight + 0.018f, z1 - ledge - 0.015f}, Vec3{1.0f, 0.0f, 0.0f}, room.halfSize.x * 1.58f, 0.016f, glowMaterial);
+    AddGuideStrip(geo, Vec3{x1 - ledge - 0.015f, wallHeight * 0.96f + 0.018f, room.center.y}, Vec3{0.0f, 0.0f, 1.0f}, room.halfSize.y * 1.52f, 0.014f, glowMaterial);
 }
 
 void AddWindowLightBeams(GeneratedRTGeometry& geo, const Room& room, const RoomVisualStyle& style, float phase) {
@@ -815,15 +896,6 @@ void AddWindowLightBeams(GeneratedRTGeometry& geo, const Room& room, const RoomV
         };
         AddOctahedron(geo, Add(center, Scale(dir, length * 0.18f)), 0.020f + style.glow * 0.014f, kMaterialHitSpark);
         AddOctahedron(geo, Add(center, Scale(dir, length * 0.03f)), 0.011f + style.glow * 0.008f, kMaterialRoomPulse);
-        if ((i & 1) == 0) {
-            AddGuideStrip(
-                geo,
-                Vec3{center.x - length * 0.10f, 0.014f, center.z - length * 0.10f},
-                dir,
-                length * 0.46f,
-                0.009f + style.glow * 0.004f,
-                kMaterialHitSpark);
-        }
     }
 
     const Vec3 moteCenter = MakeVec3(RoomDecorPoint(room, 0.12f + phase * 0.08f, 0.05f, 0.50f), 0.038f);
@@ -842,8 +914,8 @@ void AddWindowMullionWall(GeneratedRTGeometry& geo, const Room& room, const Room
     const float z1 = room.center.y + room.halfSize.y;
     const float farZ = z1 - 0.22f;
     const float sideX = x1 - 0.26f;
-    const float wallTop = 2.24f + style.glow * 0.34f;
-    const float span = (x1 - x0) * 0.44f;
+    const float wallTop = 4.02f + style.glow * 0.46f + style.decay * 0.28f;
+    const float span = (x1 - x0) * 0.50f;
     const float centerX = room.center.x + room.halfSize.x * 0.22f;
 
     AddBox(geo, Vec3{centerX - span * 0.52f, 0.18f, farZ - 0.045f}, Vec3{centerX + span * 0.52f, wallTop, farZ + 0.045f}, kMaterialWall);
@@ -856,7 +928,7 @@ void AddWindowMullionWall(GeneratedRTGeometry& geo, const Room& room, const Room
     }
 
     for (int i = 0; i < 4; ++i) {
-        const float y = 0.48f + static_cast<float>(i) * 0.40f;
+        const float y = 0.62f + static_cast<float>(i) * 0.58f;
         AddBox(geo, Vec3{centerX - span * 0.50f, y, farZ - 0.072f}, Vec3{centerX + span * 0.50f, y + 0.025f, farZ + 0.072f}, accentMaterial);
     }
 }
@@ -868,10 +940,25 @@ void AddWindowGlowPanes(GeneratedRTGeometry& geo, const Room& room, const RoomVi
     const float farZ = z1 - 0.285f;
     const float span = (x1 - x0) * 0.34f;
     const float centerX = room.center.x + room.halfSize.x * 0.22f;
-    const float y0 = 0.58f;
-    const float y1 = 2.12f + style.glow * 0.26f;
+    const float y0 = 0.78f;
+    const float y1 = 3.88f + style.glow * 0.40f;
 
     if (style.biome == VisualBiome::SunlitRuins || style.biome == VisualBiome::OvergrownSanctuary) {
+        for (int col = 0; col < 3; ++col) {
+            const float xT = (static_cast<float>(col) - 1.0f) * 0.30f;
+            const float paneX = centerX + xT * span;
+            const float paneW = span * 0.072f;
+            AddBox(
+                geo,
+                Vec3{paneX - paneW, y0 + 0.10f, farZ - 0.090f},
+                Vec3{paneX + paneW, y1 - 0.18f, farZ - 0.084f},
+                paneMaterial);
+        }
+        AddBox(
+            geo,
+            Vec3{centerX - span * 0.46f, y1 - 0.36f, farZ - 0.091f},
+            Vec3{centerX + span * 0.46f, y1 - 0.16f, farZ - 0.084f},
+            paneMaterial);
         for (int i = 0; i < 5; ++i) {
             const float t = (static_cast<float>(i) - 2.0f) * 0.23f;
             const float cx = centerX + t * span;
@@ -891,6 +978,97 @@ void AddWindowGlowPanes(GeneratedRTGeometry& geo, const Room& room, const RoomVi
     } else {
         AddOctahedron(geo, Vec3{centerX - span * 0.12f, 0.92f, farZ - 0.080f}, span * 0.075f, paneMaterial);
         AddOctahedron(geo, Vec3{centerX + span * 0.22f, 1.16f, farZ - 0.080f}, span * 0.060f, paneMaterial);
+    }
+}
+
+void AddSegmentedBackArch(
+    GeneratedRTGeometry& geo,
+    Vec3 center,
+    float halfSpan,
+    float baseY,
+    float archHeight,
+    float depth,
+    uint32_t stoneMaterial,
+    uint32_t accentMaterial,
+    uint32_t seed);
+
+void AddReferenceWindowBays(GeneratedRTGeometry& geo, const Room& room, const RoomVisualStyle& style, uint32_t paneMaterial) {
+    if (style.biome != VisualBiome::SunlitRuins && style.biome != VisualBiome::OvergrownSanctuary) {
+        return;
+    }
+
+    const float x1 = room.center.x + room.halfSize.x;
+    const float z1 = room.center.y + room.halfSize.y;
+    const float y0 = 0.92f;
+    const float y1 = 3.52f + style.glow * 0.46f;
+    const float backZ = z1 - 0.026f;
+    const float bayHalfW = room.halfSize.x * 0.145f;
+    const float rib = 0.030f;
+    const float depth = 0.036f;
+
+    for (int bay = 0; bay < 2; ++bay) {
+        const float lane = bay == 0 ? -0.18f : 0.30f;
+        const float cx = room.center.x + room.halfSize.x * lane;
+        AddBox(geo, Vec3{cx - bayHalfW - rib, y0 - rib, backZ - depth}, Vec3{cx + bayHalfW + rib, y0 + rib, backZ + depth}, kMaterialWall);
+        AddBox(geo, Vec3{cx - bayHalfW - rib, y1 - rib, backZ - depth}, Vec3{cx + bayHalfW + rib, y1 + rib, backZ + depth}, kMaterialWall);
+        AddBox(geo, Vec3{cx - bayHalfW - rib, y0, backZ - depth}, Vec3{cx - bayHalfW + rib, y1, backZ + depth}, kMaterialWall);
+        AddBox(geo, Vec3{cx + bayHalfW - rib, y0, backZ - depth}, Vec3{cx + bayHalfW + rib, y1, backZ + depth}, kMaterialWall);
+        AddBox(
+            geo,
+            Vec3{cx - bayHalfW * 0.86f, y0 + 0.08f, backZ - depth * 1.34f},
+            Vec3{cx + bayHalfW * 0.86f, y1 - 0.14f, backZ - depth * 1.18f},
+            paneMaterial);
+
+        for (int i = 0; i < 3; ++i) {
+            const float t = (static_cast<float>(i) + 1.0f) / 4.0f;
+            const float x = cx - bayHalfW * 0.82f + bayHalfW * 1.64f * t;
+            AddBox(geo, Vec3{x - rib * 0.34f, y0 + 0.06f, backZ - depth * 1.42f}, Vec3{x + rib * 0.34f, y1 - 0.12f, backZ - depth * 0.96f}, kMaterialWall);
+        }
+        for (int i = 0; i < 4; ++i) {
+            const float t = (static_cast<float>(i) + 1.0f) / 5.0f;
+            const float y = y0 + (y1 - y0) * t;
+            AddBox(geo, Vec3{cx - bayHalfW * 0.78f, y - rib * 0.26f, backZ - depth * 1.44f}, Vec3{cx + bayHalfW * 0.78f, y + rib * 0.26f, backZ - depth * 0.96f}, kMaterialWall);
+        }
+        AddSegmentedBackArch(
+            geo,
+            Vec3{cx, 0.0f, backZ - depth * 0.52f},
+            bayHalfW + rib * 0.40f,
+            y1 - 0.18f,
+            0.36f + style.glow * 0.08f,
+            depth * 0.82f,
+            kMaterialWall,
+            paneMaterial,
+            HashMix(VisualStyleHash(style), static_cast<uint32_t>(0x8260u + bay * 97u)));
+    }
+
+    const float sideX = x1 - 0.030f;
+    const float sideCenterZ = room.center.y + room.halfSize.y * 0.28f;
+    const float sideHalfZ = room.halfSize.y * 0.18f;
+    AddBox(geo, Vec3{sideX - depth, y0 - rib, sideCenterZ - sideHalfZ - rib}, Vec3{sideX + depth, y0 + rib, sideCenterZ + sideHalfZ + rib}, kMaterialWall);
+    AddBox(geo, Vec3{sideX - depth, y1 - rib, sideCenterZ - sideHalfZ - rib}, Vec3{sideX + depth, y1 + rib, sideCenterZ + sideHalfZ + rib}, kMaterialWall);
+    AddBox(geo, Vec3{sideX - depth, y0, sideCenterZ - sideHalfZ - rib}, Vec3{sideX + depth, y1, sideCenterZ - sideHalfZ + rib}, kMaterialWall);
+    AddBox(geo, Vec3{sideX - depth, y0, sideCenterZ + sideHalfZ - rib}, Vec3{sideX + depth, y1, sideCenterZ + sideHalfZ + rib}, kMaterialWall);
+    AddBox(
+        geo,
+        Vec3{sideX - depth * 1.42f, y0 + 0.08f, sideCenterZ - sideHalfZ * 0.78f},
+        Vec3{sideX - depth * 1.18f, y1 - 0.16f, sideCenterZ + sideHalfZ * 0.78f},
+        paneMaterial);
+    for (int i = 0; i < 3; ++i) {
+        const float z = sideCenterZ - sideHalfZ * 0.66f + sideHalfZ * 1.32f * (static_cast<float>(i) + 1.0f) / 4.0f;
+        AddBox(geo, Vec3{sideX - depth * 1.48f, y0 + 0.06f, z - rib * 0.30f}, Vec3{sideX - depth * 0.96f, y1 - 0.14f, z + rib * 0.30f}, kMaterialWall);
+    }
+
+    const Vec3 beamDir{-0.78f, 0.0f, -0.46f};
+    for (int i = 0; i < 32; ++i) {
+        const uint32_t h = HashMix(VisualStyleHash(style), static_cast<uint32_t>(0x8b40u + i * 37u));
+        const float lane = (HashUnit(HashMix(h, 0x11u)) - 0.5f) * room.halfSize.x * 0.62f;
+        const float along = HashUnit(HashMix(h, 0x23u)) * room.halfSize.x * 1.04f;
+        const Vec3 p{
+            room.center.x + room.halfSize.x * 0.18f + lane * 0.24f + beamDir.x * along * 0.54f,
+            0.038f + HashUnit(HashMix(h, 0x37u)) * (0.18f + style.glow * 0.12f),
+            room.center.y + room.halfSize.y * 0.38f + beamDir.z * along * 0.50f
+        };
+        AddOctahedron(geo, p, 0.010f + HashUnit(HashMix(h, 0x51u)) * 0.014f, paneMaterial);
     }
 }
 
@@ -1130,7 +1308,7 @@ void AddBackdropRelief(GeneratedRTGeometry& geo, const Room& room, const RoomVis
     const uint32_t relief = EnvReliefAccent(style);
     const bool dark = style.biome == VisualBiome::ArcaneLibrary || style.biome == VisualBiome::AbyssCrypt;
     const int panels = dark ? 5 : 4;
-    const float panelTop = 0.82f + style.decay * 0.34f + style.descent * 0.42f;
+    const float panelTop = 1.72f + style.decay * 0.44f + style.descent * 0.56f;
 
     for (int i = 0; i < panels; ++i) {
         const uint32_t h = HashMix(seedBase, static_cast<uint32_t>(0xe120u + i * 61u));
@@ -1149,7 +1327,7 @@ void AddBackdropRelief(GeneratedRTGeometry& geo, const Room& room, const RoomVis
     for (int i = 0; i < sidePanels; ++i) {
         const float t = (static_cast<float>(i) + 0.5f) / static_cast<float>(sidePanels);
         const float cz = z0 - stagePad * 0.18f + (z1 - z0 + stagePad * 0.66f) * t;
-        const float h = 0.62f + style.decay * 0.22f + static_cast<float>(i & 1) * 0.16f;
+        const float h = 1.12f + style.decay * 0.30f + static_cast<float>(i & 1) * 0.22f;
         AddBox(geo, Vec3{sideWallX - 0.045f, 0.24f, cz - 0.22f}, Vec3{sideWallX + 0.050f, 0.24f + h, cz + 0.22f}, kMaterialWall);
         AddBox(geo, Vec3{sideWallX - 0.060f, 0.24f + h * 0.46f, cz - 0.17f}, Vec3{sideWallX + 0.055f, 0.24f + h * 0.52f, cz + 0.17f}, relief);
     }
@@ -1246,7 +1424,7 @@ void AddPerimeterArchitecture(GeneratedRTGeometry& geo, const Room& room, const 
 
     const float backWallZ = z1 + stagePad * 0.72f;
     const float sideWallX = x1 + stagePad * 0.74f;
-    const float wallHeight = 1.10f + style.decay * 0.46f + style.corruption * 0.48f + style.descent * 0.52f;
+    const float wallHeight = 2.86f + style.decay * 0.62f + style.corruption * 0.58f + style.descent * 0.64f;
     AddBox(geo, Vec3{x0 - stagePad * 0.72f, 0.02f, backWallZ - 0.16f}, Vec3{x1 + stagePad * 0.78f, wallHeight, backWallZ + 0.16f}, kMaterialWall);
     AddBox(geo, Vec3{sideWallX - 0.16f, 0.02f, z0 - stagePad * 0.42f}, Vec3{sideWallX + 0.16f, wallHeight * 0.94f, z1 + stagePad * 0.70f}, kMaterialWall);
     AddBackdropRelief(geo, room, style, seedBase, stagePad);
@@ -1284,7 +1462,7 @@ void AddOuterArenaSetDressing(GeneratedRTGeometry& geo, const Room& room, const 
     const float apron = 1.25f + style.decay * 0.30f;
     const float y0 = -0.085f;
     const float y1 = -0.045f;
-    const float stagePad = apron * (3.85f + style.fog * 1.15f + style.descent * 0.38f);
+    const float stagePad = apron * (5.18f + style.fog * 1.28f + style.descent * 0.46f);
     const uint32_t seedBase = HashMix(VisualStyleHash(style), 0x8ab1u);
 
     AddBox(
@@ -1355,8 +1533,10 @@ void AddReferenceArenaScaffold(GeneratedRTGeometry& geo, const Room& room, const
     AddSquareColumn(geo, RoomDecorPoint(room, -0.86f, 0.74f, 0.58f), 0.18f, columnHeight * 0.72f, kMaterialWall, accent);
     AddSquareColumn(geo, RoomDecorPoint(room, 0.82f, -0.74f, 0.58f), 0.18f, columnHeight * 0.78f, kMaterialWall, accent);
     AddWindowMullionWall(geo, room, style, windowAccent);
-    AddWindowGlowPanes(geo, room, style, style.biome == VisualBiome::AbyssCrypt ? kMaterialPortal :
-        (style.biome == VisualBiome::ArcaneLibrary ? kMaterialRoomPulse : kMaterialHitSpark));
+    const uint32_t paneMaterial = style.biome == VisualBiome::AbyssCrypt ? kMaterialPortal :
+        (style.biome == VisualBiome::ArcaneLibrary ? kMaterialRoomPulse : kMaterialHitSpark);
+    AddWindowGlowPanes(geo, room, style, paneMaterial);
+    AddReferenceWindowBays(geo, room, style, paneMaterial);
     AddLowBenchRun(geo, room, -0.62f, -0.86f, true, kMaterialWall);
     AddLowBenchRun(geo, room, 0.86f, 0.08f, false, kMaterialWall);
 
@@ -1441,7 +1621,7 @@ Vec2 RoomDecorPoint(const Room& room, float sx, float sy, float inset = 0.0f) {
     return Vec2{x, y};
 }
 
-void AddSquareColumn(GeneratedRTGeometry& geo, Vec2 position, float radius, float height, uint32_t materialId, uint32_t accentMaterial) {
+void AddSquareColumn(GeneratedRTGeometry& geo, Vec2 position, float radius, float height, uint32_t materialId, uint32_t) {
     const float r = std::max(0.08f, radius);
     const float h = std::max(0.36f, height);
     AddBox(
@@ -1457,7 +1637,7 @@ void AddSquareColumn(GeneratedRTGeometry& geo, Vec2 position, float radius, floa
         Vec3{position.x - r * 1.05f, h, position.y - r * 1.05f},
         Vec3{position.x + r * 1.05f, h + 0.16f, position.y + r * 1.05f},
         materialId);
-    AddFlatRing(geo, Vec3{position.x, 0.018f, position.y}, r * 1.65f, 0.035f, accentMaterial);
+    AddFlatRing(geo, Vec3{position.x, 0.018f, position.y}, r * 1.18f, 0.018f, materialId);
 }
 
 void AddCandleCluster(GeneratedRTGeometry& geo, Vec2 position, float scale, uint32_t flameMaterial) {
@@ -1692,19 +1872,24 @@ void AddWallReliefPanels(GeneratedRTGeometry& geo, const Room& room, const RoomV
     const float x0 = room.center.x - room.halfSize.x;
     const float x1 = room.center.x + room.halfSize.x;
     const float z1 = room.center.y + room.halfSize.y;
-    const float panelTop = 1.05f + style.decay * 0.34f + style.glow * 0.18f;
+    const bool lush = style.biome == VisualBiome::SunlitRuins || style.biome == VisualBiome::OvergrownSanctuary;
+    const float panelTop = (lush ? 2.12f : 1.36f) + style.decay * 0.34f + style.glow * 0.22f;
     const float panelBottom = 0.38f;
     const float wallZ = z1 - 0.16f;
-    const int panelCount = style.biome == VisualBiome::SunlitRuins || style.biome == VisualBiome::OvergrownSanctuary ? 3 : 4;
+    const int panelCount = lush ? 4 : 4;
 
     for (int i = 0; i < panelCount; ++i) {
         const float t = (static_cast<float>(i) + 0.5f) / static_cast<float>(panelCount);
         const float cx = x0 + (x1 - x0) * (0.18f + t * 0.64f);
-        const float halfW = room.halfSize.x * (panelCount == 3 ? 0.090f : 0.070f);
+        const float halfW = room.halfSize.x * (lush ? 0.082f : 0.070f);
         const float rib = 0.026f + style.corruption * 0.010f;
         AddBox(geo, Vec3{cx - halfW - rib, panelBottom, wallZ - 0.040f}, Vec3{cx - halfW + rib, panelTop, wallZ + 0.040f}, kMaterialWall);
         AddBox(geo, Vec3{cx + halfW - rib, panelBottom, wallZ - 0.040f}, Vec3{cx + halfW + rib, panelTop, wallZ + 0.040f}, kMaterialWall);
         AddBox(geo, Vec3{cx - halfW, panelTop - rib, wallZ - 0.042f}, Vec3{cx + halfW, panelTop + rib, wallZ + 0.042f}, kMaterialWall);
+        AddBox(geo, Vec3{cx - halfW * 0.92f, panelBottom + 0.46f, wallZ - 0.044f}, Vec3{cx + halfW * 0.92f, panelBottom + 0.50f, wallZ + 0.044f}, kMaterialWall);
+        if (lush) {
+            AddBox(geo, Vec3{cx - halfW * 0.70f, panelTop + 0.24f, wallZ - 0.046f}, Vec3{cx + halfW * 0.70f, panelTop + 0.30f, wallZ + 0.046f}, kMaterialWall);
+        }
         AddBox(geo, Vec3{cx - halfW * 0.72f, panelBottom + 0.11f, wallZ - 0.048f}, Vec3{cx + halfW * 0.72f, panelBottom + 0.15f, wallZ + 0.048f}, accentMaterial);
         if (style.biome == VisualBiome::ArcaneLibrary || style.biome == VisualBiome::AbyssCrypt) {
             AddPyramid(geo, Vec3{cx, panelTop + 0.02f, wallZ}, halfW * 0.28f, 0.34f + style.corruption * 0.12f, kMaterialWall);
@@ -1713,13 +1898,16 @@ void AddWallReliefPanels(GeneratedRTGeometry& geo, const Room& room, const RoomV
     }
 
     const float sideX = x1 - 0.14f;
-    const int sidePanels = 3;
+    const int sidePanels = lush ? 5 : 3;
     for (int i = 0; i < sidePanels; ++i) {
         const float t = (static_cast<float>(i) + 0.5f) / static_cast<float>(sidePanels);
         const float cz = room.center.y - room.halfSize.y * 0.56f + room.halfSize.y * 1.12f * t;
-        const float h = 0.70f + style.decay * 0.20f + static_cast<float>(i & 1) * 0.16f;
+        const float h = (lush ? 1.32f : 0.70f) + style.decay * (lush ? 0.34f : 0.20f) + static_cast<float>(i & 1) * (lush ? 0.24f : 0.16f);
         AddBox(geo, Vec3{sideX - 0.040f, 0.28f, cz - 0.050f}, Vec3{sideX + 0.040f, 0.28f + h, cz + 0.050f}, kMaterialWall);
         AddBox(geo, Vec3{sideX - 0.052f, 0.28f + h * 0.54f, cz - 0.24f}, Vec3{sideX + 0.052f, 0.28f + h * 0.58f, cz + 0.24f}, accentMaterial);
+        if (lush && (i & 1) == 0) {
+            AddBox(geo, Vec3{sideX - 0.058f, 0.28f + h * 0.72f, cz - 0.16f}, Vec3{sideX + 0.058f, 0.28f + h * 0.76f, cz + 0.16f}, kMaterialHitSpark);
+        }
     }
 }
 
@@ -1873,8 +2061,8 @@ void AddCinematicWallMass(GeneratedRTGeometry& geo, const Room& room, const Room
     const float z0 = room.center.y - room.halfSize.y;
     const float z1 = room.center.y + room.halfSize.y;
     const bool dark = style.biome == VisualBiome::ArcaneLibrary || style.biome == VisualBiome::AbyssCrypt;
-    const float backHeight = 2.12f + style.decay * 0.50f + style.corruption * 0.42f + (dark ? 0.58f : 0.30f);
-    const float sideHeight = 1.48f + style.decay * 0.34f + style.descent * 0.44f + (dark ? 0.36f : 0.18f);
+    const float backHeight = 2.78f + style.decay * 0.54f + style.corruption * 0.46f + (dark ? 0.62f : 0.46f);
+    const float sideHeight = 1.94f + style.decay * 0.36f + style.descent * 0.46f + (dark ? 0.38f : 0.28f);
     const float capHeight = backHeight + 0.16f + style.glow * 0.12f;
 
     AddBox(geo, Vec3{x0 - 0.22f, 0.0f, z1 + 0.035f}, Vec3{x1 + 0.22f, backHeight, z1 + 0.34f}, kMaterialWall);
@@ -1920,7 +2108,7 @@ void AddReferenceShotLightRig(GeneratedRTGeometry& geo, const Room& room, const 
         const float winZ = z1 + 0.075f;
         const float w = room.halfSize.x * 0.34f;
         const float y0 = 0.78f;
-        const float y1 = 2.46f + style.glow * 0.36f;
+        const float y1 = 3.36f + style.glow * 0.44f;
         AddBox(geo, Vec3{winX - w, y0 - 0.035f, winZ - 0.038f}, Vec3{winX + w, y0 + 0.025f, winZ + 0.038f}, kMaterialWall);
         AddBox(geo, Vec3{winX - w, y1 - 0.025f, winZ - 0.038f}, Vec3{winX + w, y1 + 0.035f, winZ + 0.038f}, kMaterialWall);
         AddBox(geo, Vec3{winX - w - 0.030f, y0, winZ - 0.038f}, Vec3{winX - w + 0.026f, y1, winZ + 0.038f}, kMaterialWall);
@@ -1955,15 +2143,6 @@ void AddReferenceShotLightRig(GeneratedRTGeometry& geo, const Room& room, const 
                     Vec3{p.x + sx, 0.006f, p.z + sx * 0.42f},
                     kMaterialFloor);
             }
-            if ((i % 6) == 0) {
-                AddGuideStrip(
-                    geo,
-                    Vec3{p.x, 0.016f, p.z},
-                    rayDir,
-                    room.halfSize.x * (0.24f + style.glow * 0.08f),
-                    0.010f + style.glow * 0.004f,
-                    accent);
-            }
         }
         AddLeafClump(geo, Vec2{winX + w * 0.84f, winZ - 0.04f}, 0.16f + style.moss * 0.08f, HashMix(seedBase, 0x61u), kMaterialEnemySkirmisher, kMaterialWall);
         return;
@@ -1997,9 +2176,9 @@ void AddCathedralWindowRig(GeneratedRTGeometry& geo, const Room& room, const Roo
 
     const float z = room.center.y + room.halfSize.y + 0.018f;
     const float cx = room.center.x + room.halfSize.x * (0.33f + HashUnit(HashMix(seedBase, 0x74u)) * 0.12f);
-    const float halfW = room.halfSize.x * 0.22f;
+    const float halfW = room.halfSize.x * 0.28f;
     const float y0 = 0.62f;
-    const float y1 = 2.02f + style.glow * 0.28f;
+    const float y1 = 3.44f + style.glow * 0.42f;
     const float rib = 0.026f;
     const uint32_t warmMat = kMaterialHitSpark;
 
@@ -2008,13 +2187,13 @@ void AddCathedralWindowRig(GeneratedRTGeometry& geo, const Room& room, const Roo
     AddBox(geo, Vec3{cx - halfW - rib, y0, z - 0.020f}, Vec3{cx - halfW + rib, y1, z + 0.020f}, kMaterialWall);
     AddBox(geo, Vec3{cx + halfW - rib, y0, z - 0.020f}, Vec3{cx + halfW + rib, y1, z + 0.020f}, kMaterialWall);
 
-    for (int i = 0; i < 3; ++i) {
-        const float t = static_cast<float>(i + 1) / 4.0f;
+    for (int i = 0; i < 5; ++i) {
+        const float t = static_cast<float>(i + 1) / 6.0f;
         const float x = cx - halfW + halfW * 2.0f * t;
         AddBox(geo, Vec3{x - rib * 0.56f, y0 + 0.02f, z - 0.030f}, Vec3{x + rib * 0.56f, y1 - 0.02f, z + 0.030f}, warmMat);
     }
-    for (int i = 0; i < 2; ++i) {
-        const float t = static_cast<float>(i + 1) / 3.0f;
+    for (int i = 0; i < 4; ++i) {
+        const float t = static_cast<float>(i + 1) / 5.0f;
         const float y = y0 + (y1 - y0) * t;
         AddBox(geo, Vec3{cx - halfW + 0.03f, y - rib * 0.48f, z - 0.030f}, Vec3{cx + halfW - 0.03f, y + rib * 0.48f, z + 0.030f}, warmMat);
     }
@@ -2030,15 +2209,6 @@ void AddCathedralWindowRig(GeneratedRTGeometry& geo, const Room& room, const Roo
             room.center.y + room.halfSize.y * 0.30f + beamDir.z * along * 0.52f
         };
         AddOctahedron(geo, p, 0.011f + HashUnit(HashMix(h, 0x49u)) * 0.015f, warmMat);
-        if ((i % 5) == 0) {
-            AddGuideStrip(
-                geo,
-                Vec3{p.x, 0.014f, p.z},
-                beamDir,
-                room.halfSize.x * (0.20f + style.glow * 0.06f),
-                0.008f + style.glow * 0.004f,
-                warmMat);
-        }
     }
 }
 
@@ -2432,7 +2602,9 @@ void AddStyleProps(GeneratedRTGeometry& geo, const Room& room, const RoomVisualS
     AddReferenceArcadeLayer(geo, room, style, seedBase, darkAccent);
     AddReferenceHeroSetpiece(geo, room, style, seedBase, darkAccent);
     AddReferenceAccentField(geo, room, style, seedBase, darkAccent);
-    AddOverheadSilhouetteLayer(geo, room, style, seedBase, darkAccent);
+    if (style.biome == VisualBiome::ArcaneLibrary || style.biome == VisualBiome::AbyssCrypt || style.descent > 0.62f) {
+        AddOverheadSilhouetteLayer(geo, room, style, seedBase, darkAccent);
+    }
     AddRubbleScatter(geo, room, style, seedBase, 12 + static_cast<int>(style.decay * 8.0f + style.descent * 6.0f));
     AddWallReliefPanels(geo, room, style, reliefAccent);
     AddEdgeLanternRun(geo, room, style, seedBase, darkAccent);
@@ -2871,12 +3043,12 @@ void AddEnemyActionAccentProxies(std::vector<EntityRTProxy>& proxies, const Enem
 
     switch (enemy.kind) {
     case EnemyKind::Brute:
-        push(EntityProxyKind::EnemyTellRing, origin, dir, radius, 0.76f + impactProgress * 0.20f);
-        push(EntityProxyKind::EnemyTellRing, Vec3{origin.x, origin.y + 0.012f, origin.z}, dir, radius * 0.46f, 0.60f + progress * 0.12f);
+        push(EntityProxyKind::EnemyTellCone, Add(origin, Scale(dir, radius * 0.12f)), dir, radius * 0.62f, 0.42f + impactProgress * 0.12f);
+        push(EntityProxyKind::EnemyTellLine, Add(origin, Scale(dir, radius * 0.18f)), dir, radius * 0.42f, 0.34f + progress * 0.08f);
         break;
     case EnemyKind::Caster:
         push(EntityProxyKind::EnemyTellLine, Add(origin, Scale(dir, range * 0.16f)), dir, range * 0.24f, 0.48f);
-        push(EntityProxyKind::EnemyTellRing, origin, dir, radius, 0.58f);
+        push(EntityProxyKind::EnemyTellLine, origin, Direction3(Rotate2(enemy.activeActionDirection, -0.18f)), radius * 0.36f, 0.28f);
         break;
     case EnemyKind::Skirmisher:
         push(EntityProxyKind::EnemyTellLine, Add(origin, Scale(dir, range * 0.14f)), dir, range * 0.22f, 0.42f);
@@ -2884,15 +3056,15 @@ void AddEnemyActionAccentProxies(std::vector<EntityRTProxy>& proxies, const Enem
         break;
     case EnemyKind::Bulwark:
         push(EntityProxyKind::EnemyTellCone, origin, dir, range * 0.44f, 0.66f);
-        push(EntityProxyKind::EnemyTellRing, origin, dir, radius, 0.62f);
+        push(EntityProxyKind::EnemyTellLine, Add(origin, Scale(dir, radius * 0.20f)), dir, radius * 0.36f, 0.28f);
         break;
     case EnemyKind::Boss:
         if (enemy.activeActionShape == AttackShape::TargetArea) {
-            push(EntityProxyKind::EnemyTellRing, target, dir, radius, 0.96f);
-            push(EntityProxyKind::EnemyTellRing, Vec3{target.x, target.y + 0.016f, target.z}, dir, radius * 0.42f, 0.78f);
+            push(EntityProxyKind::EnemyTellRing, target, dir, radius * 0.62f, 0.42f + impactProgress * 0.12f);
+            push(EntityProxyKind::EnemyTellLine, Vec3{target.x, target.y + 0.016f, target.z}, dir, radius * 0.38f, 0.34f);
         } else {
             push(EnemyTellKind(enemy.activeActionShape), Add(origin, Scale(dir, range * 0.10f)), dir, std::max(range * 0.30f, radius), 0.58f);
-            push(EntityProxyKind::EnemyTellRing, origin, dir, radius, 0.58f);
+            push(EntityProxyKind::EnemyTellLine, origin, Direction3(Rotate2(enemy.activeActionDirection, 0.20f)), radius * 0.34f, 0.30f);
         }
         break;
     }
@@ -2999,22 +3171,36 @@ std::vector<EntityRTProxy> BuildEntityProxies(const CombatSim& sim) {
 
     const PlayerState& player = sim.Player();
     const bool playerActing = player.actionTimer > 0.0f && player.actionDuration > 0.0f;
-    const float playerActionPhase = playerActing
+    const float playerMoveSpeed = std::sqrt(LengthSq(player.velocity));
+    const float playerMoveIntensity = Saturate(playerMoveSpeed / 5.8f);
+    const float playerIdlePhase = Clamp(
+        0.055f + std::sin(player.movePhase + 0.35f) * 0.035f + playerMoveIntensity * 0.13f,
+        0.0f,
+        0.28f);
+    float playerActionPhase = playerActing
         ? ActionPosePhase(player.actionTimer, player.actionDuration, player.actionImpactTime, player.actionRecovery)
-        : 0.0f;
+        : playerIdlePhase;
+    const float playerHitReact = Saturate(player.hitReactTimer / 0.26f);
+    if (playerHitReact > 0.0f) {
+        playerActionPhase = std::max(playerActionPhase, 0.74f + Smooth01(playerHitReact) * 0.20f);
+    }
     const Vec2 playerActionFacing = playerActing ? player.activeActionDirection : player.facing;
+    const Vec2 playerVisualPosition = player.position + player.hitReactDirection * (playerHitReact * 0.12f);
     const Vec3 facing{playerActionFacing.x, 0.0f, playerActionFacing.y};
     const int activeSlot = player.activeWeaponSlot >= 0 && player.activeWeaponSlot < kPlayerWeaponSlots ? player.activeWeaponSlot : 0;
     const WeaponId playerVisualWeapon = playerActing ? player.activeActionWeapon : player.weaponSlots[activeSlot].weapon;
     const Element playerVisualElement = playerActing ? player.activeActionElement : player.weaponSlots[activeSlot].element;
     const WeaponActionIndex playerVisualAction = playerActing ? player.activeActionIndex : WeaponActionIndex::Action1;
     const AttackShape playerVisualShape = playerActing ? player.activeActionShape : AttackShape::Cone;
-    const uint32_t playerVariant = HashMix(
+    const uint32_t playerVariantBase = HashMix(
         static_cast<uint32_t>(playerVisualWeapon) * 37u + static_cast<uint32_t>(activeSlot),
         static_cast<uint32_t>(playerVisualElement) * 101u + static_cast<uint32_t>(playerVisualShape) * 17u) & 0x7u;
+    const uint32_t playerVariant = playerVariantBase |
+        (playerMoveIntensity > 0.08f ? 0x08u : 0u) |
+        (playerHitReact > 0.0f ? 0x10u : 0u);
     proxies.push_back(EntityRTProxy{
         EntityProxyKind::PlayerCore,
-        MakeVec3(player.position, 0.05f),
+        MakeVec3(playerVisualPosition, 0.05f + playerMoveIntensity * 0.035f),
         facing,
         0.88f,
         kMaterialPlayerCore,
@@ -3023,7 +3209,7 @@ std::vector<EntityRTProxy> BuildEntityProxies(const CombatSim& sim) {
     });
     proxies.push_back(EntityRTProxy{
         EntityProxyKind::PlayerBlade,
-        MakeVec3(player.position + playerActionFacing * (0.58f + playerActionPhase * 0.20f), 0.48f + playerActionPhase * 0.10f),
+        MakeVec3(playerVisualPosition + playerActionFacing * (0.58f + playerActionPhase * 0.20f), 0.48f + playerActionPhase * 0.10f),
         facing,
         0.42f,
         kMaterialPlayerBlade,
@@ -3069,9 +3255,23 @@ std::vector<EntityRTProxy> BuildEntityProxies(const CombatSim& sim) {
             break;
         }
         const bool enemyActing = enemy.actionTimer > 0.0f && enemy.actionDuration > 0.0f;
-        const float enemyActionPhase = enemyActing
-            ? ActionPosePhase(enemy.actionTimer, enemy.actionDuration, enemy.actionImpactTime, enemy.actionRecovery)
+        const float enemyMoveSpeed = std::sqrt(LengthSq(enemy.velocity));
+        const float enemyMoveIntensity = Saturate(enemyMoveSpeed / 3.8f);
+        const float enemyFloat = enemy.kind == EnemyKind::Caster
+            ? 0.070f + std::sin(enemy.movePhase + static_cast<float>(enemyOrdinal) * 1.37f) * 0.030f
             : 0.0f;
+        const float enemyIdlePhase = Clamp(
+            0.040f + std::sin(enemy.movePhase + static_cast<float>(enemyOrdinal) * 0.73f) * 0.030f + enemyMoveIntensity * 0.11f,
+            0.0f,
+            0.26f);
+        float enemyActionPhase = enemyActing
+            ? ActionPosePhase(enemy.actionTimer, enemy.actionDuration, enemy.actionImpactTime, enemy.actionRecovery)
+            : enemyIdlePhase;
+        const float enemyHitReact = Saturate(enemy.hitReactTimer / 0.24f);
+        if (enemyHitReact > 0.0f) {
+            enemyActionPhase = std::max(enemyActionPhase, 0.70f + Smooth01(enemyHitReact) * 0.23f);
+        }
+        const Vec2 enemyVisualPosition = enemy.position + enemy.hitReactDirection * (enemyHitReact * (enemy.kind == EnemyKind::Boss ? 0.06f : 0.10f));
         const Vec2 fallbackFacing = Normalize2(player.position - enemy.position, Vec2{1.0f, 0.0f});
         const Vec2 enemyFacing2 = enemyActing ? Normalize2(enemy.activeActionDirection, fallbackFacing) : fallbackFacing;
         const WeaponId enemyVisualWeapon = enemyActing ? enemy.activeActionWeapon : enemy.weapon.weapon;
@@ -3084,14 +3284,16 @@ std::vector<EntityRTProxy> BuildEntityProxies(const CombatSim& sim) {
         const uint32_t visualTag = PackEnemyVisualTag(enemy.kind, enemyVisualWeapon, enemyVisualElement, enemyVisualAction, enemyVisualShape, enemyVariant);
         proxies.push_back(EntityRTProxy{
             kind,
-            MakeVec3(enemy.position, 0.0f),
+            MakeVec3(enemyVisualPosition, enemyFloat),
             Vec3{enemyFacing2.x, 0.0f, enemyFacing2.y},
             radius,
             materialId,
             enemyActionPhase,
             visualTag
         });
-        AddEnemyReadabilityProxies(proxies, enemy, radius);
+        EnemyState visualEnemy = enemy;
+        visualEnemy.position = enemyVisualPosition;
+        AddEnemyReadabilityProxies(proxies, visualEnemy, radius);
         AddEnemyActionAccentProxies(proxies, enemy);
         AddEnemyTellProxy(proxies, enemy, player);
         ++enemyOrdinal;
@@ -3173,11 +3375,16 @@ std::vector<EntityRTProxy> BuildVfxProxies(std::span<const RenderVfxPulse> pulse
             break;
         }
 
+        float proxyRadius = pulse.radius * expansion;
+        if (pulse.kind == RenderVfxKind::WeaponRing || pulse.kind == RenderVfxKind::WeaponBurst) {
+            proxyRadius *= 0.36f;
+        }
+
         proxies.push_back(EntityRTProxy{
             proxyKind,
             position,
             pulse.direction,
-            pulse.radius * expansion,
+            proxyRadius,
             materialId
         });
     }
@@ -3185,20 +3392,48 @@ std::vector<EntityRTProxy> BuildVfxProxies(std::span<const RenderVfxPulse> pulse
     return proxies;
 }
 
-GeneratedRTGeometry GenerateWorldGeometry(const RoomGraph& world, const RoomVisualStyle* style, int focusRoomIndex) {
+GeneratedRTGeometry GenerateWorldGeometry(
+    const RoomGraph& world,
+    const RoomVisualStyle* style,
+    int focusRoomIndex,
+    const ShotLayout* shotLayout) {
     GeneratedRTGeometry geo{};
     geo.triangles.reserve(static_cast<std::size_t>(world.roomCount) * 620u + static_cast<std::size_t>(world.portalCount) * 10u);
     const bool hasFocus = focusRoomIndex >= 0 && focusRoomIndex < world.roomCount;
+    RoomVisualStyle stagedStyle{};
+    const RoomVisualStyle* activeStyle = style;
+    if (style) {
+        stagedStyle = *style;
+        if (shotLayout) {
+            stagedStyle.moss = Clamp(stagedStyle.moss * (0.82f + shotLayout->foliageDensity * 0.34f), 0.0f, 1.0f);
+            stagedStyle.decay = Clamp(stagedStyle.decay + shotLayout->edgeDensity * 0.05f, 0.0f, 1.0f);
+            stagedStyle.glow = Clamp(stagedStyle.glow + shotLayout->heroVfxBias * 0.025f, 0.0f, 1.0f);
+            stagedStyle.fog = Clamp(stagedStyle.fog + static_cast<float>(shotLayout->foregroundMask) * 0.012f, 0.0f, 1.0f);
+        }
+        activeStyle = &stagedStyle;
+    }
 
     for (int i = 0; i < world.roomCount; ++i) {
         if (hasFocus && i != focusRoomIndex) {
             continue;
         }
         const Room& room = world.rooms[i];
+        if (hasFocus) {
+            const float edgeDensity = shotLayout ? shotLayout->edgeDensity : 0.76f;
+            const float clearBias = shotLayout ? shotLayout->combatClearRadius : 0.64f;
+            AddFloor(
+                geo,
+                room.center,
+                Vec2{
+                    room.halfSize.x + 6.60f + edgeDensity * 1.05f - clearBias * 0.26f,
+                    room.halfSize.y + 5.70f + edgeDensity * 0.88f - clearBias * 0.20f
+                },
+                kMaterialCorridor);
+        }
         AddFloor(geo, room.center, room.halfSize, kMaterialFloor);
-        if (style) {
-            AddStyleFloorDetails(geo, room, *style, i);
-            AddStyleProps(geo, room, *style, i);
+        if (activeStyle) {
+            AddStyleFloorDetails(geo, room, *activeStyle, i);
+            AddStyleProps(geo, room, *activeStyle, i);
         }
         AddRoomBorders(geo, room);
         AddControlObjectiveMarker(geo, room);
@@ -3278,29 +3513,185 @@ void AddShoulderPlates(GeneratedRTGeometry& geo, Vec3 position, Vec3 direction, 
     AddEllipsoid(geo, rightP, Vec3{r * 0.16f, r * 0.080f, r * 0.11f}, materialId, 8, 3);
 }
 
+void AddTaperedCapsuleSegment(
+    GeneratedRTGeometry& geo,
+    Vec3 start,
+    Vec3 end,
+    float width,
+    uint32_t materialId) {
+    const Vec3 delta = Sub(end, start);
+    const float lenSq = LengthSq(delta);
+    if (lenSq <= 0.0001f) {
+        return;
+    }
+
+    const Vec3 axis = Scale(delta, 1.0f / std::sqrt(lenSq));
+    Vec3 side = Cross(axis, Vec3{0.0f, 1.0f, 0.0f});
+    if (LengthSq(side) <= 0.00001f) {
+        side = Cross(axis, Vec3{1.0f, 0.0f, 0.0f});
+    }
+    side = Normalize(side);
+    const Vec3 lift = Normalize(Cross(side, axis));
+    const float w = std::max(0.008f, width);
+
+    constexpr int kRings = 5;
+    constexpr int kSegments = 8;
+    std::array<std::array<Vec3, kSegments>, kRings> rings{};
+    for (int i = 0; i < kRings; ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(kRings - 1);
+        const float belly = 1.0f - std::abs(t - 0.50f) * 0.26f;
+        const float endTaper = 0.84f + std::sin(t * 3.14159265f) * 0.18f;
+        const Vec3 center = Add(start, Scale(delta, t));
+        const float rx = w * (1.62f * belly * endTaper);
+        const float ry = w * (1.42f * (0.92f + 0.14f * belly));
+        for (int j = 0; j < kSegments; ++j) {
+            const float a = static_cast<float>(j) * 6.28318530718f / static_cast<float>(kSegments);
+            rings[i][j] = Add(center, Add(Scale(side, std::cos(a) * rx), Scale(lift, std::sin(a) * ry)));
+        }
+    }
+
+    for (int i = 0; i < kRings - 1; ++i) {
+        for (int j = 0; j < kSegments; ++j) {
+            const int next = (j + 1) % kSegments;
+            AddQuad(geo, rings[i][j], rings[i][next], rings[i + 1][next], rings[i + 1][j], materialId);
+        }
+    }
+    for (int j = 0; j < kSegments; ++j) {
+        const int next = (j + 1) % kSegments;
+        AddTri(geo, start, rings[0][j], rings[0][next], materialId);
+        AddTri(geo, end, rings[kRings - 1][next], rings[kRings - 1][j], materialId);
+    }
+}
+
 void AddJointLimb(GeneratedRTGeometry& geo, Vec3 start, Vec3 end, float width, uint32_t materialId, uint32_t jointMaterial) {
     const Vec3 delta = Sub(end, start);
-    const float len = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+    const float len = std::sqrt(LengthSq(delta));
     if (len <= 0.010f) {
         return;
     }
 
-    const int beads = len > width * 8.0f ? 7 : 5;
-    for (int i = 1; i <= beads; ++i) {
-        const float t = static_cast<float>(i) / static_cast<float>(beads + 1);
-        const float taper = 1.0f - std::abs(t - 0.5f) * 0.24f;
-        const Vec3 p = Add(start, Scale(delta, t));
-        AddEllipsoid(
-            geo,
-            p,
-            Vec3{width * (1.48f * taper), width * (1.26f + 0.20f * taper), width * (1.48f * taper)},
-            materialId,
-            10,
-            4);
+    AddTaperedCapsuleSegment(geo, start, end, width, materialId);
+    AddEllipsoid(geo, start, Vec3{width * 0.88f, width * 0.72f, width * 0.88f}, jointMaterial, 8, 3);
+    AddEllipsoid(geo, end, Vec3{width * 0.94f, width * 0.70f, width * 0.94f}, jointMaterial, 8, 3);
+}
+
+void AddCharacterOuterShell(
+    GeneratedRTGeometry& geo,
+    Vec3 position,
+    Vec3 direction,
+    float radius,
+    float heightScale,
+    uint32_t bodyMaterial,
+    uint32_t accentMaterial,
+    bool enemy) {
+    const Vec3 dir = FlatDirection(direction);
+    const Vec3 right = FlatRight(direction);
+    const float r = std::max(radius, 0.12f);
+    const float h = std::max(0.80f, heightScale);
+    constexpr int kRings = 4;
+    constexpr int kSegments = 8;
+    std::array<std::array<Vec3, kSegments>, kRings> rings{};
+
+    for (int i = 0; i < kRings; ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(kRings - 1);
+        const float y = position.y + r * ((enemy ? 0.16f : 0.18f) + t * (enemy ? (0.78f * h) : 0.82f));
+        const float shoulder = std::sin(t * 3.14159265f);
+        const float halfWidth = r * ((enemy ? 0.34f : 0.30f) - t * (enemy ? 0.090f : 0.070f) + shoulder * 0.050f);
+        const float frontDepth = r * ((enemy ? 0.21f : 0.19f) - t * 0.030f);
+        const float backDepth = r * ((enemy ? 0.24f : 0.23f) + shoulder * 0.030f);
+        const Vec3 center = Add(position, Scale(dir, r * (-0.035f + t * 0.030f)));
+        for (int j = 0; j < kSegments; ++j) {
+            const float a = static_cast<float>(j) * 6.28318530718f / static_cast<float>(kSegments);
+            const float cx = std::cos(a);
+            const float sz = std::sin(a);
+            const float depth = sz >= 0.0f ? backDepth : frontDepth;
+            rings[i][j] = Add(
+                Vec3{center.x, y, center.z},
+                Add(Scale(right, cx * halfWidth), Scale(dir, sz * depth)));
+        }
     }
 
-    AddEllipsoid(geo, start, Vec3{width * 1.50f, width * 1.46f, width * 1.50f}, jointMaterial, 10, 4);
-    AddEllipsoid(geo, end, Vec3{width * 1.66f, width * 1.32f, width * 1.66f}, jointMaterial, 10, 4);
+    for (int i = 0; i < kRings - 1; ++i) {
+        for (int j = 0; j < kSegments; ++j) {
+            const int next = (j + 1) % kSegments;
+            AddQuad(geo, rings[i][j], rings[i][next], rings[i + 1][next], rings[i + 1][j], bodyMaterial);
+        }
+    }
+    for (int j = 0; j < kSegments; ++j) {
+        const int next = (j + 1) % kSegments;
+        AddTri(geo, position, rings[0][next], rings[0][j], bodyMaterial);
+        AddTri(geo, Add(position, Vec3{0.0f, r * (enemy ? h + 0.04f : 1.03f), 0.0f}), rings[kRings - 1][j], rings[kRings - 1][next], bodyMaterial);
+    }
+
+    const Vec3 waist = Add(position, Add(Scale(dir, r * 0.13f), Vec3{0.0f, r * (enemy ? 0.44f : 0.42f), 0.0f}));
+    const Vec3 chest = Add(position, Add(Scale(dir, r * 0.17f), Vec3{0.0f, r * (enemy ? h * 0.64f : 0.70f), 0.0f}));
+    AddEllipsoid(geo, waist, Vec3{r * (enemy ? 0.25f : 0.22f), r * 0.026f, r * 0.060f}, accentMaterial, 8, 3);
+    AddEllipsoid(geo, chest, Vec3{r * (enemy ? 0.18f : 0.16f), r * 0.024f, r * 0.048f}, accentMaterial, 8, 3);
+}
+
+void AddCharacterHeadShell(
+    GeneratedRTGeometry& geo,
+    Vec3 head,
+    Vec3 direction,
+    float radius,
+    uint32_t bodyMaterial,
+    uint32_t accentMaterial,
+    uint32_t glowMaterial,
+    bool enemy,
+    uint32_t role,
+    float phase) {
+    const Vec3 dir = FlatDirection(direction);
+    const Vec3 right = FlatRight(direction);
+    const float r = std::max(radius, 0.12f);
+    const float action = Saturate(phase);
+    const float boss = role == static_cast<uint32_t>(EnemyKind::Boss) ? 1.0f : 0.0f;
+    const float caster = role == static_cast<uint32_t>(EnemyKind::Caster) ? 1.0f : 0.0f;
+
+    constexpr int kRings = 5;
+    constexpr int kSegments = 8;
+    std::array<std::array<Vec3, kSegments>, kRings> rings{};
+    for (int i = 0; i < kRings; ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(kRings - 1);
+        const float crown = std::sin(t * 3.14159265f);
+        const float y = head.y + r * (-0.145f + t * (0.46f + boss * 0.12f + caster * 0.06f));
+        const float halfW = r * (0.100f + crown * (enemy ? 0.115f : 0.095f) + boss * 0.030f);
+        const float frontD = r * (0.105f + crown * 0.040f);
+        const float backD = r * (0.135f + crown * (enemy ? 0.065f : 0.050f) + caster * 0.045f);
+        const Vec3 center = Add(Vec3{head.x, y, head.z}, Scale(dir, r * (-0.030f + t * 0.045f)));
+        for (int j = 0; j < kSegments; ++j) {
+            const float a = static_cast<float>(j) * 6.28318530718f / static_cast<float>(kSegments);
+            const float cx = std::cos(a);
+            const float sz = std::sin(a);
+            const float depth = sz >= 0.0f ? backD : frontD;
+            rings[i][j] = Add(center, Add(Scale(right, cx * halfW), Scale(dir, sz * depth)));
+        }
+    }
+
+    for (int i = 0; i < kRings - 1; ++i) {
+        for (int j = 0; j < kSegments; ++j) {
+            const int next = (j + 1) % kSegments;
+            AddQuad(geo, rings[i][j], rings[i][next], rings[i + 1][next], rings[i + 1][j], bodyMaterial);
+        }
+    }
+    for (int j = 0; j < kSegments; ++j) {
+        const int next = (j + 1) % kSegments;
+        AddTri(geo, Add(head, Vec3{0.0f, -r * 0.16f, 0.0f}), rings[0][next], rings[0][j], bodyMaterial);
+        AddTri(geo, Add(head, Vec3{0.0f, r * (0.36f + boss * 0.12f), 0.0f}), rings[kRings - 1][j], rings[kRings - 1][next], bodyMaterial);
+    }
+
+    const Vec3 brow = Add(head, Add(Scale(dir, r * 0.175f), Vec3{0.0f, r * (0.060f + boss * 0.020f), 0.0f}));
+    AddEllipsoid(geo, brow, Vec3{r * (0.125f + boss * 0.035f), r * 0.036f, r * 0.040f}, accentMaterial, 8, 3);
+    AddEllipsoid(geo, Add(brow, Scale(right, r * 0.066f)), Vec3{r * 0.024f, r * 0.018f, r * 0.015f}, glowMaterial, 7, 3);
+    AddEllipsoid(geo, Add(brow, Scale(right, -r * 0.066f)), Vec3{r * 0.024f, r * 0.018f, r * 0.015f}, glowMaterial, 7, 3);
+
+    if (enemy || caster > 0.5f || boss > 0.5f) {
+        AddPyramid(
+            geo,
+            Add(head, Add(Scale(dir, -r * (0.020f + caster * 0.045f)), Vec3{0.0f, r * (0.34f + boss * 0.10f + action * 0.020f), 0.0f})),
+            r * (0.105f + boss * 0.035f + caster * 0.030f),
+            r * (0.23f + boss * 0.10f + caster * 0.09f),
+            accentMaterial);
+    }
 }
 
 void AddFloatingRibbon(
@@ -3397,24 +3788,24 @@ void AddBrokenTellBurst(GeneratedRTGeometry& geo, Vec3 center, Vec3 direction, f
     const Vec3 right = FlatRight(direction);
     const float r = std::max(radius, 0.10f);
     const float action = Smooth01(phase);
-    constexpr int kBursts = 8;
+    constexpr int kBursts = 5;
     for (int i = 0; i < kBursts; ++i) {
         const uint32_t h = HashMix(HashFloat(r), static_cast<uint32_t>(0x4a31u + i * 97u));
         const float lane = static_cast<float>(i) / static_cast<float>(kBursts);
         const float angle = lane * 6.28318530718f + action * 0.82f + (HashUnit(h) - 0.5f) * 0.22f;
         const Vec3 radial{std::cos(angle), 0.0f, std::sin(angle)};
         const Vec3 tangent{-radial.z, 0.0f, radial.x};
-        const float distance = r * (0.22f + HashUnit(HashMix(h, 0x27u)) * 0.54f);
+        const float distance = r * (0.16f + HashUnit(HashMix(h, 0x27u)) * 0.34f);
         const Vec3 p = Add(center, Add(Scale(radial, distance), Vec3{0.0f, r * (0.020f + HashUnit(HashMix(h, 0x51u)) * 0.055f), 0.0f}));
         const Vec3 flow = Normalize(Add(tangent, Scale(radial, 0.20f + action * 0.26f)));
-        AddOrientedPrism(geo, p, flow, r * (0.035f + HashUnit(HashMix(h, 0x81u)) * 0.060f), r * 0.0028f, r * 0.0024f, materialId);
+        AddOrientedPrism(geo, p, flow, r * (0.024f + HashUnit(HashMix(h, 0x81u)) * 0.040f), r * 0.0022f, r * 0.0020f, materialId);
         if ((i & 1) == 0) {
-            AddOctahedron(geo, Add(p, Scale(radial, r * 0.020f)), r * (0.010f + action * 0.006f), materialId);
+            AddOctahedron(geo, Add(p, Scale(radial, r * 0.014f)), r * (0.0070f + action * 0.0040f), materialId);
         } else {
-            AddOctahedron(geo, p, r * 0.012f, materialId);
+            AddOctahedron(geo, p, r * 0.0080f, materialId);
         }
     }
-    AddElementalParticleField(geo, center, dir, r * 0.42f, element, phase, 0.74f);
+    AddElementalParticleField(geo, center, dir, r * 0.28f, element, phase, 0.42f);
 }
 
 void AddConeTellShards(GeneratedRTGeometry& geo, Vec3 origin, Vec3 direction, float range, float phase, uint32_t materialId, Element element) {
@@ -3472,11 +3863,11 @@ void AddHoodCowl(GeneratedRTGeometry& geo, Vec3 head, Vec3 direction, float radi
     AddEllipsoid(geo, Add(head, Add(Scale(dir, -r * 0.08f), Vec3{0.0f, r * 0.18f, 0.0f})), Vec3{r * 0.36f, r * 0.30f, r * 0.30f}, materialId, 10, 4);
     AddOrientedPrism(geo, Add(head, Vec3{0.0f, r * 0.34f, 0.0f}), dir, r * 0.24f, r * 0.050f, r * 0.18f, materialId);
     AddVerticalPanel(geo, Add(head, Scale(dir, -r * 0.13f)), dir, r * 0.56f, r * 0.62f, materialId, -r * 0.20f);
-    AddGuideStrip(geo, Add(head, Add(Scale(right, -r * 0.20f), Vec3{0.0f, r * (0.05f + pulse * 0.030f), 0.0f})), Normalize(Add(dir, Scale(right, -0.38f))), r * (0.34f + pulse * 0.04f), r * 0.010f, glowMaterial);
-    AddGuideStrip(geo, Add(head, Add(Scale(right, r * 0.20f), Vec3{0.0f, r * (0.05f + pulse * 0.030f), 0.0f})), Normalize(Add(dir, Scale(right, 0.38f))), r * (0.34f + pulse * 0.04f), r * 0.010f, glowMaterial);
+    AddEllipsoid(geo, Add(head, Add(Scale(right, -r * 0.18f), Vec3{0.0f, r * (0.06f + pulse * 0.025f), 0.0f})), Vec3{r * 0.082f, r * 0.046f, r * 0.050f}, glowMaterial, 7, 3);
+    AddEllipsoid(geo, Add(head, Add(Scale(right, r * 0.18f), Vec3{0.0f, r * (0.06f + pulse * 0.025f), 0.0f})), Vec3{r * 0.082f, r * 0.046f, r * 0.050f}, glowMaterial, 7, 3);
     AddOctahedron(geo, Add(head, Add(Scale(dir, r * 0.19f), Vec3{0.0f, r * (0.05f + pulse * 0.040f), 0.0f})), r * 0.040f, glowMaterial);
-    AddGuideStrip(geo, Add(head, Add(Scale(right, -r * 0.16f), Vec3{0.0f, -r * 0.16f, 0.0f})), Normalize(Add(dir, Scale(right, -0.42f))), r * 0.32f, r * 0.010f, glowMaterial);
-    AddGuideStrip(geo, Add(head, Add(Scale(right, r * 0.16f), Vec3{0.0f, -r * 0.16f, 0.0f})), Normalize(Add(dir, Scale(right, 0.42f))), r * 0.32f, r * 0.010f, glowMaterial);
+    AddEllipsoid(geo, Add(head, Add(Scale(right, -r * 0.14f), Vec3{0.0f, -r * 0.14f, 0.0f})), Vec3{r * 0.060f, r * 0.038f, r * 0.044f}, glowMaterial, 7, 3);
+    AddEllipsoid(geo, Add(head, Add(Scale(right, r * 0.14f), Vec3{0.0f, -r * 0.14f, 0.0f})), Vec3{r * 0.060f, r * 0.038f, r * 0.044f}, glowMaterial, 7, 3);
 }
 
 void AddAntlerCrown(GeneratedRTGeometry& geo, Vec3 head, Vec3 direction, float radius, uint32_t materialId, uint32_t leafMaterial) {
@@ -3514,11 +3905,11 @@ void AddPlayerHelmetCrest(GeneratedRTGeometry& geo, Vec3 head, Vec3 direction, f
     const Vec3 right = FlatRight(direction);
     const float r = std::max(radius, 0.12f);
     const float action = Saturate(phase);
-    AddEllipsoid(geo, Add(head, Add(Scale(dir, -r * 0.04f), Vec3{0.0f, r * 0.20f, 0.0f})), Vec3{r * 0.26f, r * 0.18f, r * 0.20f}, bodyMaterial, 9, 3);
-    AddEllipsoid(geo, Add(head, Vec3{0.0f, r * 0.34f, 0.0f}), Vec3{r * 0.11f, r * 0.12f, r * 0.12f}, accentMaterial, 8, 3);
-    AddEllipsoid(geo, Add(head, Add(Scale(dir, r * 0.21f), Vec3{0.0f, r * (0.10f + action * 0.04f), 0.0f})), Vec3{r * 0.060f, r * 0.050f, r * 0.048f}, accentMaterial, 7, 3);
-    AddEllipsoid(geo, Add(head, Add(Scale(right, r * 0.14f), Vec3{0.0f, r * 0.04f, 0.0f})), Vec3{r * 0.050f, r * 0.038f, r * 0.040f}, accentMaterial, 7, 3);
-    AddEllipsoid(geo, Add(head, Add(Scale(right, -r * 0.14f), Vec3{0.0f, r * 0.04f, 0.0f})), Vec3{r * 0.050f, r * 0.038f, r * 0.040f}, accentMaterial, 7, 3);
+    AddEllipsoid(geo, Add(head, Add(Scale(dir, -r * 0.04f), Vec3{0.0f, r * 0.15f, 0.0f})), Vec3{r * 0.18f, r * 0.13f, r * 0.15f}, bodyMaterial, 8, 3);
+    AddEllipsoid(geo, Add(head, Vec3{0.0f, r * 0.27f, 0.0f}), Vec3{r * 0.070f, r * 0.085f, r * 0.075f}, accentMaterial, 7, 3);
+    AddEllipsoid(geo, Add(head, Add(Scale(dir, r * 0.18f), Vec3{0.0f, r * (0.08f + action * 0.03f), 0.0f})), Vec3{r * 0.044f, r * 0.036f, r * 0.034f}, accentMaterial, 6, 3);
+    AddEllipsoid(geo, Add(head, Add(Scale(right, r * 0.11f), Vec3{0.0f, r * 0.03f, 0.0f})), Vec3{r * 0.036f, r * 0.028f, r * 0.030f}, accentMaterial, 6, 3);
+    AddEllipsoid(geo, Add(head, Add(Scale(right, -r * 0.11f), Vec3{0.0f, r * 0.03f, 0.0f})), Vec3{r * 0.036f, r * 0.028f, r * 0.030f}, accentMaterial, 6, 3);
 }
 
 void AddElementalParticleField(
@@ -4229,6 +4620,168 @@ CharacterRigPose BuildSharedCharacterPose(
     return rig;
 }
 
+Vec3 RigOffsetPoint(const CharacterRigPose& rig, Vec3 center, float side, float forward, float yOffset) {
+    return Add(
+        Add(Vec3{center.x, center.y + yOffset, center.z}, Scale(rig.right, side)),
+        Scale(rig.dir, forward));
+}
+
+void AddRigBodySurface(
+    GeneratedRTGeometry& geo,
+    const CharacterRigPose& rig,
+    float radius,
+    const CharacterKit& kit,
+    bool enemy,
+    uint32_t role) {
+    const float r = std::max(radius, 0.12f);
+    const float brute = enemy && role == static_cast<uint32_t>(EnemyKind::Brute) ? 1.0f : 0.0f;
+    const float caster = enemy && role == static_cast<uint32_t>(EnemyKind::Caster) ? 1.0f : 0.0f;
+    const float boss = enemy && role == static_cast<uint32_t>(EnemyKind::Boss) ? 1.0f : 0.0f;
+    constexpr int kRings = 5;
+    constexpr int kSegments = 8;
+    std::array<std::array<Vec3, kSegments>, kRings> rings{};
+
+    const float lowY = rig.pelvis.y - r * (enemy ? 0.24f : 0.20f);
+    const float waistY = rig.pelvis.y + r * (0.08f + caster * 0.06f);
+    const float ribsY = rig.pelvis.y * 0.44f + rig.chest.y * 0.56f;
+    const float chestY = rig.chest.y + r * (0.14f + boss * 0.04f);
+    const float collarY = rig.head.y - r * (0.29f - caster * 0.03f);
+    const std::array<float, kRings> ys{lowY, waistY, ribsY, chestY, collarY};
+    const std::array<float, kRings> widths{
+        r * (enemy ? 0.25f : 0.20f) * kit.hipScale,
+        r * (enemy ? 0.34f : 0.25f) * kit.hipScale,
+        r * (enemy ? (0.43f + brute * 0.10f) : 0.32f) * kit.torsoScale,
+        r * (enemy ? (0.46f + brute * 0.12f + boss * 0.06f) : 0.35f) * kit.shoulderScale,
+        r * (enemy ? (0.22f + caster * 0.05f) : 0.16f) * kit.headScale
+    };
+    const std::array<float, kRings> frontDepths{
+        r * (enemy ? 0.12f : 0.10f),
+        r * (enemy ? 0.17f : 0.13f),
+        r * (enemy ? 0.22f : 0.17f),
+        r * (enemy ? 0.22f : 0.18f),
+        r * (enemy ? 0.12f : 0.10f)
+    };
+    const std::array<float, kRings> backDepths{
+        r * (enemy ? 0.18f : 0.15f),
+        r * (enemy ? 0.24f : 0.19f),
+        r * (enemy ? 0.29f : 0.23f),
+        r * (enemy ? (0.32f + caster * 0.08f + boss * 0.07f) : 0.27f),
+        r * (enemy ? 0.18f : 0.16f)
+    };
+
+    for (int i = 0; i < kRings; ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(kRings - 1);
+        const Vec3 center = Add(
+            Vec3{rig.pelvis.x, ys[i], rig.pelvis.z},
+            Scale(rig.dir, r * (-0.030f + t * 0.060f - caster * 0.030f)));
+        for (int j = 0; j < kSegments; ++j) {
+            const float a = static_cast<float>(j) * 6.28318530718f / static_cast<float>(kSegments);
+            const float cx = std::cos(a);
+            const float sz = std::sin(a);
+            const float taper = 0.94f + (j & 1 ? 0.06f : -0.02f);
+            const float depth = sz >= 0.0f ? backDepths[i] : frontDepths[i];
+            rings[i][j] = Add(center, Add(Scale(rig.right, cx * widths[i] * taper), Scale(rig.dir, sz * depth)));
+        }
+    }
+
+    for (int i = 0; i < kRings - 1; ++i) {
+        for (int j = 0; j < kSegments; ++j) {
+            const int next = (j + 1) % kSegments;
+            AddQuad(geo, rings[i][j], rings[i][next], rings[i + 1][next], rings[i + 1][j], kit.bodyMaterial);
+        }
+    }
+    for (int j = 0; j < kSegments; ++j) {
+        const int next = (j + 1) % kSegments;
+        AddTri(geo, Vec3{rig.pelvis.x, lowY - r * 0.025f, rig.pelvis.z}, rings[0][next], rings[0][j], kit.bodyMaterial);
+        AddTri(geo, Vec3{rig.pelvis.x, collarY + r * 0.035f, rig.pelvis.z}, rings[kRings - 1][j], rings[kRings - 1][next], kit.bodyMaterial);
+    }
+
+    const float armorLift = enemy ? 0.0f : 0.015f;
+    const Vec3 frontLow = RigOffsetPoint(rig, rig.pelvis, 0.0f, r * (0.18f + armorLift), r * 0.02f);
+    const Vec3 frontHigh = RigOffsetPoint(rig, rig.chest, 0.0f, r * (0.23f + armorLift), r * 0.13f);
+    const float panelW = r * (enemy ? 0.18f : 0.12f) * kit.armorScale;
+    AddQuad(
+        geo,
+        Add(frontLow, Scale(rig.right, -panelW)),
+        Add(frontLow, Scale(rig.right, panelW)),
+        Add(frontHigh, Scale(rig.right, panelW * 0.72f)),
+        Add(frontHigh, Scale(rig.right, -panelW * 0.72f)),
+        kit.accentMaterial);
+
+    const uint32_t lineMaterial = enemy ? kit.patternMaterial : kit.accentMaterial;
+    AddQuad(
+        geo,
+        RigOffsetPoint(rig, rig.pelvis, -r * 0.024f, r * 0.235f, r * 0.05f),
+        RigOffsetPoint(rig, rig.pelvis, r * 0.024f, r * 0.235f, r * 0.05f),
+        RigOffsetPoint(rig, rig.chest, r * 0.018f, r * 0.270f, r * 0.20f),
+        RigOffsetPoint(rig, rig.chest, -r * 0.018f, r * 0.270f, r * 0.20f),
+        lineMaterial);
+}
+
+void AddDrapedClothSurface(
+    GeneratedRTGeometry& geo,
+    const CharacterRigPose& rig,
+    float radius,
+    const CharacterKit& kit,
+    bool enemy,
+    uint32_t role,
+    float phase) {
+    const float r = std::max(radius, 0.12f);
+    const float action = Saturate(phase);
+    const float caster = enemy && role == static_cast<uint32_t>(EnemyKind::Caster) ? 1.0f : 0.0f;
+    const float boss = enemy && role == static_cast<uint32_t>(EnemyKind::Boss) ? 1.0f : 0.0f;
+    const float cloth = kit.clothScale * (enemy ? (0.92f + caster * 0.34f + boss * 0.32f) : 0.78f);
+    const float back = r * (0.30f + cloth * 0.15f);
+    const float shoulder = r * (enemy ? 0.40f : 0.30f) * kit.shoulderScale;
+    const float hem = r * (enemy ? (0.42f + caster * 0.20f + boss * 0.24f) : 0.30f) * kit.cloakScale;
+    const float fall = r * (enemy ? (0.54f + caster * 0.24f + boss * 0.28f) : 0.40f);
+    const Vec3 collarCenter = Add(rig.chest, Add(Scale(rig.dir, -r * 0.13f), Vec3{0.0f, r * 0.21f, 0.0f}));
+    const Vec3 hemCenter = Add(rig.pelvis, Add(Scale(rig.dir, -back - action * r * 0.04f), Vec3{0.0f, -fall, 0.0f}));
+    const Vec3 midCenter = Add(rig.pelvis, Add(Scale(rig.dir, -back * 0.78f), Vec3{0.0f, -fall * 0.35f, 0.0f}));
+    const Vec3 topL = Add(collarCenter, Scale(rig.right, -shoulder));
+    const Vec3 topR = Add(collarCenter, Scale(rig.right, shoulder));
+    const Vec3 midL = Add(midCenter, Scale(rig.right, -hem * (0.78f + action * 0.06f)));
+    const Vec3 midR = Add(midCenter, Scale(rig.right, hem * (0.78f - action * 0.04f)));
+    const Vec3 botL = Add(hemCenter, Scale(rig.right, -hem));
+    const Vec3 botR = Add(hemCenter, Scale(rig.right, hem * (0.94f + action * 0.05f)));
+    AddQuad(geo, topL, topR, midR, midL, kit.bodyMaterial);
+    AddQuad(geo, midL, midR, botR, botL, kit.bodyMaterial);
+    AddQuad(
+        geo,
+        Add(topL, Scale(rig.right, r * 0.030f)),
+        Add(topR, Scale(rig.right, -r * 0.030f)),
+        Add(midR, Scale(rig.right, -r * 0.024f)),
+        Add(midL, Scale(rig.right, r * 0.024f)),
+        kit.bodyMaterial);
+    AddGuideStrip(geo, Add(botL, Scale(rig.right, hem * 0.50f)), rig.right, hem * 1.00f, r * 0.008f, kit.accentMaterial);
+    if (enemy && (caster > 0.5f || boss > 0.5f)) {
+        AddFloatingRibbon(geo, Add(collarCenter, Scale(rig.right, -shoulder * 0.72f)), rig.dir, Scale(rig.right, -1.0f), r * (0.92f + boss * 0.28f), r * 0.18f, r * 0.018f, kit.patternMaterial);
+        AddFloatingRibbon(geo, Add(collarCenter, Scale(rig.right, shoulder * 0.70f)), rig.dir, rig.right, r * (0.88f + boss * 0.22f), r * 0.17f, r * 0.017f, kit.patternMaterial);
+    }
+}
+
+void AddRigLimbCloth(
+    GeneratedRTGeometry& geo,
+    const CharacterRigPose& rig,
+    Vec3 start,
+    Vec3 end,
+    float radius,
+    uint32_t materialId) {
+    const Vec3 axis = Normalize(Sub(end, start));
+    Vec3 side = Cross(axis, Vec3{0.0f, 1.0f, 0.0f});
+    if (LengthSq(side) <= 0.00001f) {
+        side = rig.right;
+    }
+    side = Normalize(side);
+    const float w0 = radius * 0.040f;
+    const float w1 = radius * 0.026f;
+    const Vec3 s0 = Add(start, Scale(side, -w0));
+    const Vec3 s1 = Add(start, Scale(side, w0));
+    const Vec3 e0 = Add(end, Scale(side, -w1));
+    const Vec3 e1 = Add(end, Scale(side, w1));
+    AddQuad(geo, s0, s1, e1, e0, materialId);
+}
+
 void AddProceduralKitMarks(
     GeneratedRTGeometry& geo,
     const CharacterRigPose& rig,
@@ -4277,25 +4830,29 @@ void AddReferenceCharacterKitDetails(
     const Vec3 frontChest = Add(rig.chest, Scale(dir, r * 0.27f));
     const Vec3 waist = Add(rig.pelvis, Add(Scale(dir, r * 0.17f), Vec3{0.0f, r * 0.10f, 0.0f}));
     const Vec3 collar = Add(rig.chest, Vec3{0.0f, r * 0.20f, 0.0f});
+    const float robeWidth = enemy ? r * (0.46f + kit.clothScale * 0.08f) : r * (0.30f + kit.clothScale * 0.045f);
+    const float robeHeight = enemy ? r * (0.72f + kit.clothScale * 0.10f) : r * (0.50f + kit.clothScale * 0.055f);
+    const float runeWidth = enemy ? r * (0.18f + kit.ornamentScale * 0.035f) : r * (0.055f + kit.ornamentScale * 0.016f);
+    const float runeHeight = enemy ? r * (0.56f + kit.clothScale * 0.06f) : r * (0.28f + kit.clothScale * 0.035f);
 
     AddVerticalPanel(
         geo,
-        Add(frontChest, Vec3{0.0f, -r * 0.42f, 0.0f}),
+        Add(frontChest, Vec3{0.0f, enemy ? -r * 0.42f : -r * 0.34f, 0.0f}),
         dir,
-        r * (0.46f + kit.clothScale * 0.08f),
-        r * (0.72f + kit.clothScale * 0.10f),
+        robeWidth,
+        robeHeight,
         kit.bodyMaterial,
         0.0f);
     AddVerticalPanel(
         geo,
-        Add(frontChest, Add(Scale(dir, r * 0.012f), Vec3{0.0f, -r * 0.32f, 0.0f})),
+        Add(frontChest, Add(Scale(dir, r * 0.012f), Vec3{0.0f, enemy ? -r * 0.32f : -r * 0.18f, 0.0f})),
         dir,
-        r * (0.18f + kit.ornamentScale * 0.035f),
-        r * (0.56f + kit.clothScale * 0.06f),
+        runeWidth,
+        runeHeight,
         glowMaterial,
         0.0f);
-    AddGuideStrip(geo, Add(waist, Vec3{0.0f, r * 0.05f, 0.0f}), right, r * (0.62f + kit.hipScale * 0.08f), r * 0.020f, kit.accentMaterial);
-    AddGuideStrip(geo, Add(collar, Scale(dir, r * 0.06f)), right, r * (0.54f + kit.shoulderScale * 0.10f), r * 0.016f, kit.accentMaterial);
+    AddEllipsoid(geo, Add(waist, Vec3{0.0f, r * 0.05f, 0.0f}), Vec3{r * 0.24f, r * 0.030f, r * 0.060f}, kit.accentMaterial, 8, 3);
+    AddEllipsoid(geo, Add(collar, Scale(dir, r * 0.06f)), Vec3{r * 0.22f, r * 0.026f, r * 0.054f}, kit.accentMaterial, 8, 3);
 
     for (int sideIndex = -1; sideIndex <= 1; sideIndex += 2) {
         const float side = static_cast<float>(sideIndex);
@@ -4334,7 +4891,7 @@ void AddReferenceCharacterKitDetails(
             3);
     }
 
-    const int gemCount = enemy ? 5 : 4;
+    const int gemCount = enemy ? 5 : 2;
     for (int i = 0; i < gemCount; ++i) {
         const uint32_t h = HashMix(kit.variant + static_cast<uint32_t>(i) * 0x45d9u, enemy ? 0x541u : 0x319u);
         const float side = (HashUnit(HashMix(h, 0x11u)) - 0.5f) * r * 0.42f;
@@ -4361,7 +4918,7 @@ void AddReferenceCharacterKitDetails(
 
     if (role == static_cast<uint32_t>(EnemyKind::Brute)) {
         AddEllipsoid(geo, Add(rig.head, Add(Scale(dir, r * 0.16f), Vec3{0.0f, r * 0.04f, 0.0f})), Vec3{r * 0.25f * kit.maskScale, r * 0.10f, r * 0.10f}, kit.patternMaterial, 10, 4);
-        AddGuideStrip(geo, Add(frontChest, Vec3{0.0f, r * 0.08f, 0.0f}), right, r * 0.74f, r * 0.030f, kit.patternMaterial);
+        AddEllipsoid(geo, Add(frontChest, Vec3{0.0f, r * 0.08f, 0.0f}), Vec3{r * 0.26f, r * 0.040f, r * 0.070f}, kit.patternMaterial, 8, 3);
     } else if (role == static_cast<uint32_t>(EnemyKind::Caster)) {
         AddEllipsoid(geo, Add(rig.head, Vec3{0.0f, r * 0.24f, 0.0f}), Vec3{r * 0.30f * kit.maskScale, r * 0.18f, r * 0.25f}, kit.bodyMaterial, 11, 4);
         AddOctahedron(geo, Add(rig.head, Add(Scale(dir, r * 0.24f), Vec3{0.0f, r * (0.28f + pulse * 0.03f), 0.0f})), r * 0.060f * kit.glowScale, glowMaterial);
@@ -4373,14 +4930,14 @@ void AddReferenceCharacterKitDetails(
         AddBlade(geo, Add(rig.rightShoulder, Add(Scale(right, r * 0.16f), Vec3{0.0f, r * 0.06f, 0.0f})), right, r * 0.22f * kit.silhouetteScale, kit.accentMaterial);
     } else if (role == static_cast<uint32_t>(EnemyKind::Bulwark)) {
         AddVerticalPanel(geo, Add(frontChest, Scale(dir, r * 0.08f)), dir, r * 0.56f * kit.armorScale, r * 0.78f, kit.patternMaterial, -r * 0.42f);
-        AddGuideStrip(geo, Add(frontChest, Vec3{0.0f, r * 0.10f, 0.0f}), right, r * 0.70f, r * 0.034f, glowMaterial);
+        AddEllipsoid(geo, Add(frontChest, Vec3{0.0f, r * 0.10f, 0.0f}), Vec3{r * 0.24f, r * 0.042f, r * 0.070f}, glowMaterial, 8, 3);
         AddEllipsoid(geo, Add(rig.head, Add(Scale(dir, r * 0.16f), Vec3{0.0f, r * 0.04f, 0.0f})), Vec3{r * 0.22f * kit.maskScale, r * 0.090f, r * 0.086f}, kit.patternMaterial, 10, 4);
     } else if (role == static_cast<uint32_t>(EnemyKind::Boss)) {
         AddEllipsoid(geo, Add(rig.head, Vec3{0.0f, r * 0.32f, 0.0f}), Vec3{r * 0.28f * kit.maskScale, r * 0.16f, r * 0.22f}, kit.accentMaterial, 12, 5);
         AddOctahedron(geo, Add(rig.head, Vec3{0.0f, r * (0.58f + pulse * 0.06f), 0.0f}), r * 0.10f * kit.glowScale, glowMaterial);
         AddFloatingRibbon(geo, Add(collar, Scale(right, -r * 0.30f)), dir, Scale(right, -1.0f), r * 0.96f * kit.clothScale, r * 0.22f, r * 0.020f, kit.bodyMaterial);
         AddFloatingRibbon(geo, Add(collar, Scale(right, r * 0.30f)), dir, right, r * 0.94f * kit.clothScale, r * 0.20f, r * 0.020f, kit.bodyMaterial);
-        AddGuideStrip(geo, Add(frontChest, Vec3{0.0f, r * 0.15f, 0.0f}), right, r * 0.92f, r * 0.034f, glowMaterial);
+        AddEllipsoid(geo, Add(frontChest, Vec3{0.0f, r * 0.15f, 0.0f}), Vec3{r * 0.30f, r * 0.048f, r * 0.082f}, glowMaterial, 9, 3);
     }
 }
 
@@ -4394,7 +4951,6 @@ void AddHumanoidFigure(
     float phase,
     uint32_t visualTag) {
     const float r = std::max(radius, 0.18f);
-    const float baseY = position.y;
     const uint32_t weaponClass = visualTag & 0xffu;
     const Element element = PlayerVisualTagElement(visualTag);
     const WeaponActionIndex actionIndex = PlayerVisualTagAction(visualTag);
@@ -4417,41 +4973,28 @@ void AddHumanoidFigure(
     const Vec3 leftFoot = rig.leftFoot;
     const Vec3 rightFoot = rig.rightFoot;
 
-    AddCloakFan(geo, position, dir, r * kit.cloakScale, bodyMaterial);
-    AddProceduralCapeTails(geo, position, dir, r * kit.cloakScale, bodyMaterial, accentMaterial, phase);
-    AddShoulderPlates(geo, position, dir, r * kit.shoulderScale, accentMaterial);
-    AddArmorFacets(geo, position, dir, r * kit.armorScale, bodyMaterial, accentMaterial, phase);
-    AddJointLimb(geo, leftHip, leftFoot, r * 0.046f, bodyMaterial, bodyMaterial);
-    AddJointLimb(geo, rightHip, rightFoot, r * 0.046f, bodyMaterial, bodyMaterial);
-    AddEllipsoid(geo, Add(leftFoot, Scale(dir, r * 0.045f)), Vec3{r * 0.12f, r * 0.052f, r * 0.060f}, bodyMaterial, 8, 3);
-    AddEllipsoid(geo, Add(rightFoot, Scale(dir, r * 0.045f)), Vec3{r * 0.12f, r * 0.052f, r * 0.060f}, bodyMaterial, 8, 3);
-    AddEllipsoid(geo, Add(leftHip, Vec3{0.0f, r * 0.030f, 0.0f}), Vec3{r * 0.105f, r * 0.085f, r * 0.095f}, bodyMaterial, 8, 3);
-    AddEllipsoid(geo, Add(rightHip, Vec3{0.0f, r * 0.030f, 0.0f}), Vec3{r * 0.105f, r * 0.085f, r * 0.095f}, bodyMaterial, 8, 3);
+    AddDrapedClothSurface(geo, rig, r * kit.cloakScale, kit, false, 0u, phase);
+    AddProceduralCapeTails(geo, position, dir, r * kit.cloakScale * 0.76f, bodyMaterial, accentMaterial, phase);
+    AddRigBodySurface(geo, rig, r, kit, false, 0u);
+    AddShoulderPlates(geo, position, dir, r * kit.shoulderScale * 0.70f, accentMaterial);
+    AddArmorFacets(geo, position, dir, r * kit.armorScale * 0.62f, bodyMaterial, accentMaterial, phase);
+    AddJointLimb(geo, leftHip, leftFoot, r * 0.030f, bodyMaterial, bodyMaterial);
+    AddJointLimb(geo, rightHip, rightFoot, r * 0.030f, bodyMaterial, bodyMaterial);
+    AddEllipsoid(geo, Add(leftFoot, Scale(dir, r * 0.060f)), Vec3{r * 0.105f, r * 0.042f, r * 0.052f}, bodyMaterial, 8, 3);
+    AddEllipsoid(geo, Add(rightFoot, Scale(dir, r * 0.060f)), Vec3{r * 0.105f, r * 0.042f, r * 0.052f}, bodyMaterial, 8, 3);
     const Vec3 leftShoulder = rig.leftShoulder;
     const Vec3 rightShoulder = rig.rightShoulder;
     const Vec3 leftHand = rig.leftHand;
     const Vec3 rightHand = rig.rightHand;
-    AddJointLimb(geo, leftShoulder, leftHand, r * 0.038f, bodyMaterial, accentMaterial);
-    AddJointLimb(geo, rightShoulder, rightHand, r * 0.040f, bodyMaterial, accentMaterial);
-    AddEllipsoid(geo, leftHand, Vec3{r * 0.064f, r * 0.052f, r * 0.058f}, accentMaterial, 8, 3);
-    AddEllipsoid(geo, rightHand, Vec3{r * 0.068f, r * 0.054f, r * 0.060f}, accentMaterial, 8, 3);
-    AddEllipsoid(geo, Add(leftShoulder, Add(Scale(dir, r * 0.035f), Vec3{0.0f, r * 0.010f, 0.0f})), Vec3{r * 0.155f, r * 0.080f, r * 0.105f}, accentMaterial, 8, 3);
-    AddEllipsoid(geo, Add(rightShoulder, Add(Scale(dir, r * 0.035f), Vec3{0.0f, r * 0.010f, 0.0f})), Vec3{r * 0.155f, r * 0.080f, r * 0.105f}, accentMaterial, 8, 3);
-    AddEllipsoid(geo, Add(position, Add(Scale(dir, -r * 0.24f), Vec3{0.0f, r * 0.48f, 0.0f})), Vec3{r * 0.30f, r * 0.36f, r * 0.18f}, bodyMaterial, 10, 4);
-    AddEllipsoid(geo, Add(position, Add(Scale(right, r * 0.24f), Vec3{0.0f, r * 0.42f, 0.0f})), Vec3{r * 0.12f, r * 0.24f, r * 0.12f}, bodyMaterial, 8, 3);
-    AddEllipsoid(geo, Add(position, Add(Scale(right, -r * 0.24f), Vec3{0.0f, r * 0.42f, 0.0f})), Vec3{r * 0.12f, r * 0.24f, r * 0.12f}, bodyMaterial, 8, 3);
-    AddCylinder(geo, Vec3{chest.x, baseY + r * 0.22f, chest.z}, r * 0.17f, r * 0.52f, bodyMaterial, 10);
-    AddEllipsoid(geo, Vec3{chest.x, baseY + r * 0.70f, chest.z}, Vec3{r * 0.30f, r * 0.28f, r * 0.24f}, bodyMaterial, 10, 4);
-    AddEllipsoid(geo, Vec3{position.x, baseY + r * 0.36f, position.z}, Vec3{r * 0.25f, r * 0.18f, r * 0.22f}, bodyMaterial, 9, 3);
-    AddEllipsoid(geo, Vec3{position.x - dir.x * r * 0.08f, baseY + r * 0.30f, position.z - dir.z * r * 0.08f}, Vec3{r * 0.34f, r * 0.30f, r * 0.26f}, bodyMaterial, 10, 4);
-    AddEllipsoid(geo, Add(position, Add(Scale(dir, -r * 0.16f), Vec3{0.0f, r * 0.50f, 0.0f})), Vec3{r * 0.28f, r * 0.28f, r * 0.18f}, bodyMaterial, 10, 4);
-    AddEllipsoid(geo, Add(head, Scale(dir, r * 0.03f)), Vec3{r * 0.26f, r * 0.30f, r * 0.24f}, bodyMaterial, 10, 4);
-    AddEllipsoid(geo, Add(head, Add(Scale(dir, -r * 0.05f), Vec3{0.0f, r * 0.07f, 0.0f})), Vec3{r * 0.25f, r * 0.16f, r * 0.20f}, bodyMaterial, 9, 3);
-    AddPlayerHelmetCrest(geo, head, dir, r, bodyMaterial, accentMaterial, phase);
-    AddEllipsoid(geo, Add(head, Scale(dir, r * 0.18f)), Vec3{r * 0.11f, r * 0.070f, r * 0.060f}, accentMaterial, 8, 3);
-    const Vec3 eyeCenter = Add(head, Add(Scale(dir, r * 0.25f), Vec3{0.0f, r * 0.015f, 0.0f}));
-    AddEllipsoid(geo, Add(eyeCenter, Scale(right, r * 0.090f)), Vec3{r * 0.032f, r * 0.024f, r * 0.022f}, accentMaterial, 7, 3);
-    AddEllipsoid(geo, Add(eyeCenter, Scale(right, -r * 0.090f)), Vec3{r * 0.032f, r * 0.024f, r * 0.022f}, accentMaterial, 7, 3);
+    AddJointLimb(geo, leftShoulder, leftHand, r * 0.027f, bodyMaterial, bodyMaterial);
+    AddJointLimb(geo, rightShoulder, rightHand, r * 0.029f, bodyMaterial, bodyMaterial);
+    AddRigLimbCloth(geo, rig, leftShoulder, leftHand, r, bodyMaterial);
+    AddRigLimbCloth(geo, rig, rightShoulder, rightHand, r, bodyMaterial);
+    AddEllipsoid(geo, leftHand, Vec3{r * 0.052f, r * 0.043f, r * 0.046f}, accentMaterial, 8, 3);
+    AddEllipsoid(geo, rightHand, Vec3{r * 0.054f, r * 0.044f, r * 0.048f}, accentMaterial, 8, 3);
+    AddEllipsoid(geo, Add(leftShoulder, Add(Scale(dir, r * 0.040f), Vec3{0.0f, r * 0.012f, 0.0f})), Vec3{r * 0.092f, r * 0.042f, r * 0.066f}, accentMaterial, 8, 3);
+    AddEllipsoid(geo, Add(rightShoulder, Add(Scale(dir, r * 0.040f), Vec3{0.0f, r * 0.012f, 0.0f})), Vec3{r * 0.092f, r * 0.042f, r * 0.066f}, accentMaterial, 8, 3);
+    AddCharacterHeadShell(geo, head, dir, r, bodyMaterial, accentMaterial, element != Element::None ? ElementTellMaterial(element) : accentMaterial, false, 0u, phase);
     AddChestRunes(geo, chest, dir, r, accentMaterial);
     AddProceduralKitMarks(geo, rig, r, kit, element, false);
     AddReferenceCharacterKitDetails(geo, rig, r, kit, element, false, 0u, weaponClass, phase);
@@ -4508,10 +5051,10 @@ void AddHumanoidFigure(
         geo,
         Add(position, Add(Scale(dir, r * (0.22f + action * 0.18f)), Vec3{0.0f, r * (0.28f + action * 0.10f), 0.0f})),
         dir,
-        r * (0.48f + action * 0.18f),
+        r * (0.28f + action * 0.12f),
         element,
         phase,
-        0.55f + action * 0.65f);
+        0.24f + action * 0.36f);
 }
 
 void AddEnemyFigure(
@@ -4546,50 +5089,34 @@ void AddEnemyFigure(
     const Vec3 leftFoot = rig.leftFoot;
     const Vec3 rightFoot = rig.rightFoot;
 
-    AddCloakFan(geo, position, dir, r * (0.92f + h * 0.05f) * kit.cloakScale, bodyMaterial);
-    AddShoulderPlates(geo, position, dir, r * (0.90f + h * 0.06f) * kit.shoulderScale, accentMaterial);
-    AddArmorFacets(geo, position, dir, r * (0.94f + h * 0.04f) * kit.armorScale, bodyMaterial, accentMaterial, phase);
-    AddJointLimb(geo, leftHip, leftFoot, r * (0.046f + h * 0.003f), bodyMaterial, bodyMaterial);
-    AddJointLimb(geo, rightHip, rightFoot, r * (0.046f + h * 0.003f), bodyMaterial, bodyMaterial);
-    AddEllipsoid(geo, Add(leftFoot, Scale(dir, r * 0.045f)), Vec3{r * (0.13f + h * 0.012f), r * 0.056f, r * 0.066f}, bodyMaterial, 8, 3);
-    AddEllipsoid(geo, Add(rightFoot, Scale(dir, r * 0.045f)), Vec3{r * (0.13f + h * 0.012f), r * 0.056f, r * 0.066f}, bodyMaterial, 8, 3);
-    AddEllipsoid(geo, Add(leftHip, Vec3{0.0f, r * 0.030f, 0.0f}), Vec3{r * 0.120f, r * 0.090f, r * 0.100f}, bodyMaterial, 8, 3);
-    AddEllipsoid(geo, Add(rightHip, Vec3{0.0f, r * 0.030f, 0.0f}), Vec3{r * 0.120f, r * 0.090f, r * 0.100f}, bodyMaterial, 8, 3);
+    AddDrapedClothSurface(geo, rig, r * kit.cloakScale, kit, true, role, phase);
+    AddRigBodySurface(geo, rig, r, kit, true, role);
+    AddShoulderPlates(geo, position, dir, r * (0.70f + h * 0.045f) * kit.shoulderScale, accentMaterial);
+    AddArmorFacets(geo, position, dir, r * (0.66f + h * 0.030f) * kit.armorScale, bodyMaterial, accentMaterial, phase);
+    AddJointLimb(geo, leftHip, leftFoot, r * (0.031f + h * 0.0015f), bodyMaterial, bodyMaterial);
+    AddJointLimb(geo, rightHip, rightFoot, r * (0.031f + h * 0.0015f), bodyMaterial, bodyMaterial);
+    AddEllipsoid(geo, Add(leftFoot, Scale(dir, r * 0.060f)), Vec3{r * (0.112f + h * 0.010f), r * 0.046f, r * 0.056f}, bodyMaterial, 8, 3);
+    AddEllipsoid(geo, Add(rightFoot, Scale(dir, r * 0.060f)), Vec3{r * (0.112f + h * 0.010f), r * 0.046f, r * 0.056f}, bodyMaterial, 8, 3);
     const Vec3 leftShoulder = rig.leftShoulder;
     const Vec3 rightShoulder = rig.rightShoulder;
     const Vec3 leftHand = rig.leftHand;
     const Vec3 rightHand = rig.rightHand;
-    AddJointLimb(geo, leftShoulder, leftHand, r * 0.040f, bodyMaterial, accentMaterial);
-    AddJointLimb(geo, rightShoulder, rightHand, r * 0.042f, bodyMaterial, accentMaterial);
-    AddEllipsoid(geo, leftHand, Vec3{r * 0.070f, r * 0.058f, r * 0.064f}, accentMaterial, 8, 3);
-    AddEllipsoid(geo, rightHand, Vec3{r * 0.074f, r * 0.060f, r * 0.066f}, accentMaterial, 8, 3);
-    AddEllipsoid(geo, Add(leftShoulder, Add(Scale(dir, r * 0.040f), Vec3{0.0f, r * 0.012f, 0.0f})), Vec3{r * 0.170f, r * 0.090f, r * 0.116f}, accentMaterial, 8, 3);
-    AddEllipsoid(geo, Add(rightShoulder, Add(Scale(dir, r * 0.040f), Vec3{0.0f, r * 0.012f, 0.0f})), Vec3{r * 0.170f, r * 0.090f, r * 0.116f}, accentMaterial, 8, 3);
+    AddJointLimb(geo, leftShoulder, leftHand, r * 0.028f, bodyMaterial, bodyMaterial);
+    AddJointLimb(geo, rightShoulder, rightHand, r * 0.030f, bodyMaterial, bodyMaterial);
+    AddRigLimbCloth(geo, rig, leftShoulder, leftHand, r, bodyMaterial);
+    AddRigLimbCloth(geo, rig, rightShoulder, rightHand, r, bodyMaterial);
+    AddEllipsoid(geo, leftHand, Vec3{r * 0.056f, r * 0.046f, r * 0.050f}, accentMaterial, 8, 3);
+    AddEllipsoid(geo, rightHand, Vec3{r * 0.058f, r * 0.048f, r * 0.052f}, accentMaterial, 8, 3);
+    AddEllipsoid(geo, Add(leftShoulder, Add(Scale(dir, r * 0.048f), Vec3{0.0f, r * 0.014f, 0.0f})), Vec3{r * 0.104f, r * 0.050f, r * 0.074f}, accentMaterial, 8, 3);
+    AddEllipsoid(geo, Add(rightShoulder, Add(Scale(dir, r * 0.048f), Vec3{0.0f, r * 0.014f, 0.0f})), Vec3{r * 0.104f, r * 0.050f, r * 0.074f}, accentMaterial, 8, 3);
+    AddCharacterHeadShell(geo, rig.head, dir, r, bodyMaterial, accentMaterial, element != Element::None ? ElementTellMaterial(element) : accentMaterial, true, role, phase);
     AddEllipsoid(
         geo,
-        Add(position, Add(Scale(dir, -r * (0.36f + action * 0.10f)), Vec3{0.0f, r * (0.38f + action * 0.06f), 0.0f})),
-        Vec3{r * (0.22f + h * 0.04f), r * (0.22f + h * 0.06f), r * 0.14f},
+        Add(position, Add(Scale(dir, r * (0.26f + action * 0.08f)), Vec3{0.0f, r * (0.42f + action * 0.05f), 0.0f})),
+        Vec3{r * 0.052f, r * 0.070f, r * 0.046f},
         accentMaterial,
-        9,
+        7,
         3);
-    AddEllipsoid(geo, Add(position, Add(Scale(dir, -r * 0.18f), Vec3{0.0f, r * (h * 0.42f + 0.12f), 0.0f})), Vec3{r * 0.33f, r * (h * 0.34f), r * 0.20f}, bodyMaterial, 10, 4);
-    AddEllipsoid(geo, Add(position, Add(Scale(right, r * 0.30f), Vec3{0.0f, r * h * 0.42f, 0.0f})), Vec3{r * 0.13f, r * h * 0.24f, r * 0.13f}, bodyMaterial, 8, 3);
-    AddEllipsoid(geo, Add(position, Add(Scale(right, -r * 0.30f), Vec3{0.0f, r * h * 0.42f, 0.0f})), Vec3{r * 0.13f, r * h * 0.24f, r * 0.13f}, bodyMaterial, 8, 3);
-    AddCylinder(geo, Vec3{position.x, baseY + r * 0.18f, position.z}, r * 0.18f, r * (h * 0.72f), bodyMaterial, 10);
-    AddEllipsoid(geo, Vec3{position.x, baseY + r * (h * 0.62f), position.z}, Vec3{r * 0.34f, r * 0.30f, r * 0.28f}, bodyMaterial, 10, 4);
-    AddEllipsoid(geo, Vec3{position.x, baseY + r * 0.38f, position.z}, Vec3{r * 0.26f, r * 0.18f, r * 0.22f}, bodyMaterial, 9, 3);
-    AddEllipsoid(geo, Vec3{position.x, baseY + r * 0.46f, position.z}, Vec3{r * 0.13f, r * 0.080f, r * 0.12f}, bodyMaterial, 8, 3);
-    AddEllipsoid(geo, Vec3{position.x, baseY + r * (h + 0.30f), position.z}, Vec3{r * 0.23f, r * 0.28f, r * 0.23f}, bodyMaterial, 10, 4);
-    AddEllipsoid(geo, Add(Vec3{position.x, baseY + r * (h + 0.32f), position.z}, Scale(dir, r * 0.18f)), Vec3{r * 0.080f, r * 0.052f, r * 0.050f}, accentMaterial, 8, 3);
-    const Vec3 enemyHead{position.x, baseY + r * (h + 0.30f), position.z};
-    const Vec3 enemyEyeCenter = Add(enemyHead, Add(Scale(dir, r * 0.24f), Vec3{0.0f, r * 0.020f, 0.0f}));
-    AddEllipsoid(geo, Add(enemyEyeCenter, Scale(right, r * 0.095f)), Vec3{r * 0.038f, r * 0.028f, r * 0.024f}, accentMaterial, 7, 3);
-    AddEllipsoid(geo, Add(enemyEyeCenter, Scale(right, -r * 0.095f)), Vec3{r * 0.038f, r * 0.028f, r * 0.024f}, accentMaterial, 7, 3);
-    AddEllipsoid(geo, Add(enemyHead, Add(Scale(right, r * 0.22f), Vec3{0.0f, r * 0.18f, 0.0f})), Vec3{r * 0.080f, r * 0.050f, r * 0.050f}, accentMaterial, 7, 3);
-    AddEllipsoid(geo, Add(enemyHead, Add(Scale(right, -r * 0.22f), Vec3{0.0f, r * 0.18f, 0.0f})), Vec3{r * 0.080f, r * 0.050f, r * 0.050f}, accentMaterial, 7, 3);
-    AddEllipsoid(geo, Add(position, Add(Scale(right, r * 0.54f), Vec3{0.0f, r * 0.56f, 0.0f})), Vec3{r * 0.080f, r * 0.16f, r * 0.070f}, accentMaterial, 8, 3);
-    AddEllipsoid(geo, Add(position, Add(Scale(right, -r * 0.54f), Vec3{0.0f, r * 0.54f, 0.0f})), Vec3{r * 0.070f, r * 0.14f, r * 0.060f}, bodyMaterial, 8, 3);
-    AddEllipsoid(geo, Add(position, Add(Scale(dir, r * (0.32f + action * 0.10f)), Vec3{0.0f, r * (0.44f + action * 0.06f), 0.0f})), Vec3{r * 0.080f, r * 0.11f, r * 0.070f}, accentMaterial, 8, 3);
     AddEnemyRoleDetails(geo, position, dir, r, h, bodyMaterial, accentMaterial, role, weaponClass, phase);
     AddProceduralKitMarks(geo, rig, r, kit, element, true);
     AddReferenceCharacterKitDetails(geo, rig, r, kit, element, true, role, weaponClass, phase);
@@ -4636,7 +5163,7 @@ GeneratedRTGeometry GenerateRTGeometry(std::span<const EntityRTProxy> proxies) {
                 geo,
                 proxy.position,
                 proxy.direction,
-                proxy.radius * 1.24f,
+                proxy.radius * 1.12f,
                 proxy.materialId,
                 kMaterialPlayerBlade,
                 proxy.phase,
@@ -4704,26 +5231,26 @@ GeneratedRTGeometry GenerateRTGeometry(std::span<const EntityRTProxy> proxies) {
                 0.82f);
             break;
         case EntityProxyKind::EnemyBrute: {
-            AddEnemyFigure(geo, proxy.position, proxy.direction, proxy.radius * 1.20f, kMaterialEnemyBulwark, kMaterialHitSpark, 1.38f, proxy.phase, proxy.visualTag);
+            AddEnemyFigure(geo, proxy.position, proxy.direction, proxy.radius * 1.14f, proxy.materialId, kMaterialHitSpark, 1.38f, proxy.phase, proxy.visualTag);
             break;
         }
         case EntityProxyKind::EnemyCaster: {
-            AddEnemyFigure(geo, proxy.position, proxy.direction, proxy.radius * 1.18f, proxy.materialId, kMaterialRoomPulse, 1.72f, proxy.phase, proxy.visualTag);
+            AddEnemyFigure(geo, proxy.position, proxy.direction, proxy.radius * 1.12f, proxy.materialId, kMaterialRoomPulse, 1.72f, proxy.phase, proxy.visualTag);
             AddOctahedron(geo, Vec3{proxy.position.x, proxy.position.y + proxy.radius * 2.00f, proxy.position.z}, proxy.radius * 0.22f, kMaterialPlayerBlade);
             break;
         }
         case EntityProxyKind::EnemySkirmisher: {
-            AddEnemyFigure(geo, proxy.position, proxy.direction, proxy.radius * 1.18f, proxy.materialId, kMaterialControl, 1.24f, proxy.phase, proxy.visualTag);
+            AddEnemyFigure(geo, proxy.position, proxy.direction, proxy.radius * 1.12f, proxy.materialId, kMaterialControl, 1.24f, proxy.phase, proxy.visualTag);
             break;
         }
         case EntityProxyKind::EnemyBulwark: {
-            AddEnemyFigure(geo, proxy.position, proxy.direction, proxy.radius * 1.18f, proxy.materialId, kMaterialProjectile, 1.16f, proxy.phase, proxy.visualTag);
+            AddEnemyFigure(geo, proxy.position, proxy.direction, proxy.radius * 1.10f, proxy.materialId, kMaterialProjectile, 1.16f, proxy.phase, proxy.visualTag);
             const Vec3 front = Add(proxy.position, Scale(FlatDirection(proxy.direction), proxy.radius * 0.58f));
             AddVerticalPanel(geo, front, proxy.direction, proxy.radius * 0.82f, proxy.radius * 1.32f, kMaterialEnemyBulwark, proxy.radius * 0.18f);
             break;
         }
         case EntityProxyKind::EnemyBoss: {
-            AddEnemyFigure(geo, proxy.position, proxy.direction, proxy.radius * 1.18f, proxy.materialId, kMaterialHitSpark, 1.48f, proxy.phase, proxy.visualTag);
+            AddEnemyFigure(geo, proxy.position, proxy.direction, proxy.radius * 1.14f, proxy.materialId, kMaterialHitSpark, 1.48f, proxy.phase, proxy.visualTag);
             AddEllipsoid(geo, Vec3{proxy.position.x, proxy.position.y + proxy.radius * 2.30f, proxy.position.z}, Vec3{proxy.radius * 0.24f, proxy.radius * 0.22f, proxy.radius * 0.20f}, kMaterialEnemyBoss, 10, 4);
             AddOrientedPrism(geo, Vec3{proxy.position.x, proxy.position.y + proxy.radius * 2.66f, proxy.position.z}, proxy.direction, proxy.radius * 0.38f, proxy.radius * 0.045f, proxy.radius * 0.18f, kMaterialEnemyBoss);
             break;
@@ -4768,15 +5295,14 @@ GeneratedRTGeometry GenerateRTGeometry(std::span<const EntityRTProxy> proxies) {
                 0.72f);
             break;
         case EntityProxyKind::EnemyTellRing:
-            AddBrokenTellBurst(geo, proxy.position, proxy.direction, proxy.radius * 0.42f, proxy.phase, proxy.materialId, proxy.visualTag != 0u ? ActionVisualTagElement(proxy.visualTag) : ElementFromMaterialId(proxy.materialId));
             AddElementalParticleField(
                 geo,
                 proxy.position,
                 proxy.direction,
-                proxy.radius * 0.24f,
+                proxy.radius * 0.15f,
                 proxy.visualTag != 0u ? ActionVisualTagElement(proxy.visualTag) : ElementFromMaterialId(proxy.materialId),
                 proxy.phase,
-                0.70f);
+                0.42f);
             break;
         case EntityProxyKind::Projectile:
             AddOctahedron(geo, proxy.position, proxy.radius * 0.58f, proxy.materialId);
@@ -4834,7 +5360,7 @@ PackedRTGeometry PackRTGeometry(const GeneratedRTGeometry& geometry) {
         packed.indices.push_back(base + 0u);
         packed.indices.push_back(base + 1u);
         packed.indices.push_back(base + 2u);
-        packed.triangleMetadata.push_back(RtTriangleMetadata{tri.a.normal, tri.materialId});
+        packed.triangleMetadata.push_back(RtTriangleMetadata{tri.a.normal, tri.materialId, tri.styleTag});
     }
 
     return packed;
@@ -4863,6 +5389,7 @@ uint32_t HashPackedRTGeometry(const PackedRTGeometry& geometry) {
         h = HashMix(h, HashFloat(triangle.normal.y));
         h = HashMix(h, HashFloat(triangle.normal.z));
         h = HashMix(h, triangle.materialId);
+        h = HashMix(h, triangle.styleTag);
     }
     return h;
 }

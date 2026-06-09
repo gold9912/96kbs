@@ -258,6 +258,7 @@ struct CombatEvent {
 
 struct PlayerState {
     Vec2 position{};
+    Vec2 velocity{};
     Vec2 facing{1.0f, 0.0f};
     Vec2 castOrigin{};
     float hp = 100.0f;
@@ -275,6 +276,10 @@ struct PlayerState {
     float actionDuration = 0.0f;
     float actionImpactTime = 0.0f;
     float actionRecovery = 0.0f;
+    float movePhase = 0.0f;
+    float hitReactTimer = 0.0f;
+    Vec2 hitReactDirection{};
+    Element lastHitElement = Element::None;
     int roomIndex = 0;
     int activeWeaponSlot = 0;
     uint32_t katanaWaveCounter = 0;
@@ -308,6 +313,10 @@ struct EnemyState {
     float actionDuration = 0.0f;
     float actionImpactTime = 0.0f;
     float actionRecovery = 0.0f;
+    float movePhase = 0.0f;
+    float hitReactTimer = 0.0f;
+    Vec2 hitReactDirection{};
+    Element lastHitElement = Element::None;
     int roomIndex = 0;
     EnemyKind kind = EnemyKind::Brute;
     WeaponSlot weapon{};

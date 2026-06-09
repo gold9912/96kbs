@@ -57,9 +57,9 @@ cbuffer OverlayConstants : register(b0) {
     uint gFloorIndex;
     uint gDescentPercent;
     uint gSpriteCount;
-    uint gReserved1;
-    uint gReserved2;
-    uint gReserved3;
+    uint gShotLayoutIdentity;
+    uint gShotLayoutWeights;
+    uint gRenderQuality;
 };
 
 struct PSIn {
@@ -515,6 +515,10 @@ uint StyleBiome() {
     return gVisualStyleIdentity & 3u;
 }
 
+float ShotWeight(uint shift) {
+    return (float)((gShotLayoutWeights >> shift) & 15u) / 15.0;
+}
+
 float Hash21(float2 p) {
     p = frac(p * float2(123.34, 456.21));
     p += dot(p, p + 45.32);
@@ -670,7 +674,7 @@ float3 ScreenLightPool(float2 uv, float2 centered) {
     float diagonal = 1.0 - smoothstep(0.035, 0.32, abs((uv.y - 0.18) + (uv.x - 0.78) * 0.54));
     float sourceFalloff = smoothstep(1.10, 0.10, length((uv - float2(0.78, 0.20)) * float2(0.90, 1.35)));
     float centerPool = smoothstep(0.82, 0.10, length((centered - float2(0.08, -0.06)) * float2(0.88, 1.25)));
-    float3 warm = float3(1.00, 0.70, 0.30) * (diagonal * sourceFalloff * (0.018 + glow * 0.026) + centerPool * 0.010);
+    float3 warm = float3(1.00, 0.78, 0.48) * (diagonal * sourceFalloff * (0.014 + glow * 0.020) + centerPool * 0.006);
     float darkPulse = smoothstep(0.90, 0.10, length((centered - float2(0.10, -0.02)) * float2(0.92, 1.14)));
     float3 abyss = StyleHudTint() * darkPulse * (0.032 + glow * 0.040 + fog * 0.024);
 
@@ -708,9 +712,9 @@ float3 ReferenceKeyLight(float2 uv, float2 centered) {
         float floorPool = smoothstep(0.80, 0.08, length((centered - float2(0.12, -0.05)) * float2(0.78, 1.26))) * arena;
         float rimLantern = smoothstep(0.24, 0.00, length(uv - float2(0.12, 0.88))) +
             smoothstep(0.20, 0.00, length(uv - float2(0.86, 0.80)));
-        float3 warm = float3(1.00, 0.68, 0.26);
+        float3 warm = float3(1.00, 0.76, 0.44);
         float3 cyan = float3(0.18, 0.96, 1.00);
-        return warm * ((broadBeam * 0.032 + hotBeam * 0.050) * lattice + floorPool * 0.012) * (1.0 - descent * 0.58) +
+        return warm * ((broadBeam * 0.016 + hotBeam * 0.024) * lattice + floorPool * 0.006) * (1.0 - descent * 0.58) +
             cyan * rimLantern * (0.030 + glow * 0.028);
     }
 
@@ -777,7 +781,7 @@ float3 ReferenceVolumetricVeil(float2 uv, float2 centered) {
         float lattice = 0.58 + 0.42 * smoothstep(0.18, 0.94, sin((uv.x * 26.0 - uv.y * 18.0 + (float)(gVisualStyleVariant & 31u)) * 3.14159265) * 0.5 + 0.5);
         float floorHaze = smoothstep(0.90, 0.40, uv.y) * smoothstep(1.22, 0.28, length(centered * float2(0.86, 1.22)));
         float motes = dust * step(0.78 - fog * 0.08, rnd) * (0.45 + dither * 0.55);
-        return float3(1.00, 0.76, 0.38) * (rayA * 0.056 + rayB * 0.027) * lattice * (1.0 - descent * 0.54) +
+        return float3(1.00, 0.84, 0.56) * (rayA * 0.024 + rayB * 0.011) * lattice * (1.0 - descent * 0.54) +
             StyleHudTint() * floorHaze * (0.013 + glow * 0.020) +
             float3(1.00, 0.86, 0.56) * motes * (0.010 + fog * 0.020);
     }
@@ -800,6 +804,8 @@ float3 ApplyReferenceForeground(float3 color, float2 uv, float2 centered) {
     float fog = StyleWeight(gVisualStyleAtmosphere, 8u);
     float glow = StyleWeight(gVisualStyleAtmosphere, 4u);
     float descent = StyleWeight(gVisualStyleAtmosphere, 12u);
+    float foregroundBias = ShotWeight(8u);
+    float edgeDensity = ShotWeight(4u);
     float topMass = smoothstep(0.36, 0.02, uv.y) * smoothstep(0.03, 0.30, uv.x) * smoothstep(0.99, 0.58, uv.x);
     float lowerRail = smoothstep(0.78, 1.05, uv.y) * smoothstep(0.02, 0.30, uv.x) * smoothstep(0.98, 0.62, uv.x);
     float sideMass = smoothstep(0.82, 1.10, abs(centered.x)) * smoothstep(0.14, 0.88, uv.y);
@@ -817,10 +823,10 @@ float3 ApplyReferenceForeground(float3 color, float2 uv, float2 centered) {
         vine = saturate(strand * hang * 0.75 + leafDots * hang * 0.22);
     }
 
-    float mask = saturate(topMass * 0.44 + lowerRail * 0.18 + sideMass * (0.26 + descent * 0.16) + rib * 0.18 + arch * 0.16 + vine * 0.17);
-    mask *= biome <= 1u ? 0.60 : 1.0;
-    float3 shadowTint = biome <= 1u ? float3(0.018, 0.032, 0.022) : float3(0.020, 0.010, 0.040);
-    color = lerp(color, color * (0.58 - descent * 0.08) + shadowTint, mask);
+    float mask = saturate(topMass * (0.24 + foregroundBias * 0.10) + lowerRail * 0.10 + sideMass * (0.12 + descent * 0.08 + edgeDensity * 0.05) + rib * 0.090 + arch * 0.085 + vine * (0.10 + foregroundBias * 0.06));
+    mask *= biome <= 1u ? 0.24 : 0.82;
+    float3 shadowTint = biome <= 1u ? float3(0.030, 0.054, 0.038) : float3(0.024, 0.014, 0.048);
+    color = lerp(color, color * (0.80 - descent * 0.035) + shadowTint, mask);
     color += (biome <= 1u ? float3(0.030, 0.072, 0.032) : StyleHudTint() * 0.34) * vine * (0.010 + glow * 0.006);
     color += StyleHudTint() * rib * (0.006 + glow * 0.012 + fog * 0.006);
     return color;
@@ -870,7 +876,7 @@ float3 ReferenceSetDressingLights(float2 uv, float2 centered) {
     float3 lights = float3(0.0, 0.0, 0.0);
 
     if (biome <= 1u) {
-        float3 warm = float3(0.95, 0.68, 0.36);
+        float3 warm = float3(0.92, 0.80, 0.58);
         float3 cyan = float3(0.20, 0.92, 1.00);
         float windowCore = EllipseGlow(uv, float2(0.865, 0.105), float2(1.0, 1.55), 0.17);
         float windowHalo = EllipseGlow(uv, float2(0.870, 0.130), float2(0.80, 1.20), 0.36);
@@ -878,7 +884,7 @@ float3 ReferenceSetDressingLights(float2 uv, float2 centered) {
         float lanternB = EllipseGlow(uv, float2(0.885, 0.780), float2(1.20, 1.0), 0.052);
         float floorSheen = smoothstep(0.78, 0.12, length((centered - float2(0.12, -0.04)) * float2(0.70, 1.18)));
         float dapple = 0.68 + 0.32 * ShotStripe(uv.x * 0.76 - uv.y * 0.44 + (float)(gVisualStyleVariant & 31u) * 0.007, 8.0, 0.060);
-        lights += warm * (windowCore * 0.088 + windowHalo * 0.030 + floorSheen * dapple * 0.014) * (1.0 - descent * 0.48);
+        lights += warm * (windowCore * 0.040 + windowHalo * 0.016 + floorSheen * dapple * 0.008) * (1.0 - descent * 0.48);
         lights += cyan * (lanternA + lanternB) * (0.072 + glow * 0.046 + wetness * 0.016);
         return lights;
     }
@@ -912,19 +918,19 @@ float3 ApplyReferenceColorPipeline(float3 color, float2 uv, float2 centered) {
     float arena = smoothstep(1.16, 0.24, length(centered * float2(0.82, 1.14)));
     float frame = smoothstep(0.52, 1.22, max(abs(centered.x) * 0.86, abs(centered.y) * 1.10));
     float3 gray = float3(luma, luma, luma);
-    float3 shadowTint = biome <= 1u ? float3(0.012, 0.024, 0.024) : float3(0.014, 0.006, 0.040);
-    float3 highlightTint = biome <= 1u ? float3(0.94, 0.72, 0.42) : lerp(StyleHudTint(), float3(1.0, 0.045, 0.085), 0.38 + descent * 0.22);
-    float contrast = 1.10 + glow * 0.065 + descent * 0.090;
+    float3 shadowTint = biome <= 1u ? float3(0.020, 0.040, 0.038) : float3(0.014, 0.006, 0.040);
+    float3 highlightTint = biome <= 1u ? float3(0.82, 0.78, 0.62) : lerp(StyleHudTint(), float3(1.0, 0.045, 0.085), 0.38 + descent * 0.22);
+    float contrast = 1.06 + glow * 0.052 + descent * 0.074;
 
-    color = lerp(color, color * (biome <= 1u ? float3(0.72, 0.78, 0.78) : float3(0.56, 0.42, 0.68)) + shadowTint, shadow * (0.20 + fog * 0.10 + frame * 0.14));
-    color += highlightTint * highlight * (0.025 + glow * 0.032 + arena * 0.020);
-    color = lerp(gray, color, 1.10 + glow * 0.10 + (biome >= 2u ? 0.06 : 0.04));
+    color = lerp(color, color * (biome <= 1u ? float3(0.82, 0.86, 0.86) : float3(0.56, 0.42, 0.68)) + shadowTint, shadow * (0.14 + fog * 0.07 + frame * 0.09));
+    color += highlightTint * highlight * (0.018 + glow * 0.024 + arena * 0.014);
+    color = lerp(gray, color, 1.20 + glow * 0.12 + (biome >= 2u ? 0.08 : 0.08));
     color = (color - 0.18) * contrast + 0.18;
-    color *= 1.0 - frame * (biome <= 1u ? 0.10 : (0.16 + descent * 0.06));
+    color *= 1.0 - frame * (biome <= 1u ? 0.055 : (0.16 + descent * 0.06));
     if (biome >= 2u) {
         color = lerp(color, color * float3(0.86, 0.62, 1.02) + float3(0.030, 0.000, 0.026), descent * 0.16);
     } else {
-        color = lerp(color, color * float3(1.02, 1.00, 0.92), highlight * 0.10);
+        color = lerp(color, color * float3(1.00, 1.00, 0.97), highlight * 0.08);
     }
     return max(color, 0.0);
 }
@@ -937,40 +943,47 @@ float3 ApplyReferenceShotPolish(float3 color, float2 uv, float2 centered) {
     float glow = StyleWeight(gVisualStyleAtmosphere, 4u);
     float fog = StyleWeight(gVisualStyleAtmosphere, 8u);
     float descent = StyleWeight(gVisualStyleAtmosphere, 12u);
+    float clearRadius = ShotWeight(0u);
+    float edgeDensity = ShotWeight(4u);
+    float foliageDensity = ShotWeight(8u);
+    float heroBias = ShotWeight(12u);
+    float warmCool = ShotWeight(16u);
     float arena = smoothstep(1.18, 0.22, length(centered * float2(0.82, 1.14)));
     float topDepth = (1.0 - smoothstep(0.08, 0.42, uv.y)) * smoothstep(0.02, 0.16, uv.x) * (1.0 - smoothstep(0.96, 1.0, uv.x));
     float rightDepth = smoothstep(0.72, 1.02, uv.x) * smoothstep(0.05, 0.86, uv.y);
     float leftDepth = (1.0 - smoothstep(0.00, 0.20, uv.x)) * smoothstep(0.10, 0.88, uv.y);
     float bottomDepth = smoothstep(0.76, 1.05, uv.y) * smoothstep(0.04, 0.96, uv.x);
-    float frameDepth = saturate(topDepth * 0.70 + rightDepth * 0.30 + leftDepth * 0.24 + bottomDepth * 0.22);
+    float frameDepth = saturate(topDepth * (0.32 + edgeDensity * 0.12) + rightDepth * 0.24 + leftDepth * 0.12 + bottomDepth * (0.12 + edgeDensity * 0.08));
 
     if (biome <= 1u) {
-        float3 coolShade = color * float3(0.62, 0.69, 0.72) + float3(0.008, 0.022 + moss * 0.006, 0.023);
-        color = lerp(color, coolShade, frameDepth * (0.34 + fog * 0.08));
+        float3 coolShade = color * float3(0.84, 0.86, 0.84) + float3(0.024, 0.048 + moss * 0.010, 0.038);
+        color = lerp(color, coolShade, frameDepth * (0.13 + fog * 0.035));
 
-        float window = ShotRectMask(uv, float2(0.790, 0.016), float2(0.996, 0.250), 0.016);
+        float window = ShotRectMask(uv, float2(0.762, 0.006), float2(0.998, 0.292), 0.018);
         float paneV = ShotStripe(uv.x - 0.790, 4.4, 0.026);
         float paneH = ShotStripe(uv.y - 0.016, 3.2, 0.034);
         float mullion = window * saturate(paneV + paneH);
         float pane = window * (1.0 - mullion * 0.54);
-        float2 winD = (uv - float2(0.888, 0.100)) * float2(1.0, 1.42);
+        float2 winD = (uv - float2(0.886, 0.118)) * float2(0.92, 1.28);
         float windowBloom = window * smoothstep(0.36, 0.02, length(winD));
-        float3 warm = float3(0.95, 0.70, 0.38);
-        color += warm * (pane * (0.014 + glow * 0.018) + windowBloom * (0.022 + fog * 0.014)) * (1.0 - descent * 0.48);
-        color = lerp(color, color * 0.62 + float3(0.035, 0.026, 0.018), mullion * 0.26);
+        float3 warm = float3(0.96, 0.84, 0.62);
+        color += warm * (pane * (0.016 + glow * 0.016 + warmCool * 0.008) + windowBloom * (0.030 + fog * 0.012 + warmCool * 0.018)) * (1.0 - descent * 0.42);
+        color = lerp(color, color * 0.68 + float3(0.054, 0.044, 0.032), mullion * 0.28);
 
         float2 source = float2(0.86, 0.06);
         float2 d = uv - source;
         float rayCore = smoothstep(0.12, 0.0, abs(d.y + d.x * 0.62)) * smoothstep(1.02, 0.05, length(d * float2(0.82, 1.08)));
         float rayWide = smoothstep(0.22, 0.0, abs(d.y + d.x * 0.86 - 0.10)) * smoothstep(0.96, 0.08, length(d * float2(1.04, 0.92)));
+        float rayHigh = smoothstep(0.18, 0.0, abs(d.y + d.x * 0.44 + 0.040)) * smoothstep(0.92, 0.06, length(d * float2(0.74, 1.22)));
         float rayGate = 0.72 + 0.28 * ShotStripe(uv.x - uv.y * 0.22 + (float)(gVisualStyleVariant & 63u) * 0.003, 11.0, 0.070);
-        color += warm * (rayCore * 0.014 + rayWide * 0.007) * rayGate * (1.0 - descent * 0.58);
+        color += warm * (rayCore * (0.018 + warmCool * 0.009) + rayWide * 0.010 + rayHigh * 0.008) * rayGate * (1.0 - descent * 0.50);
 
         float floorLattice = arena *
             (ShotStripe(uv.x * 0.90 + uv.y * 0.44 + (float)(gVisualStyleVariant & 31u) * 0.011, 7.0, 0.026) +
              ShotStripe(uv.x * -0.62 + uv.y * 0.76 + (float)((gVisualStyleVariant >> 5u) & 31u) * 0.013, 6.0, 0.024));
-        color = lerp(color, color * float3(0.72, 0.82, 0.78), saturate(floorLattice) * 0.030);
-        color += float3(0.18, 0.78, 1.00) * arena * wetness * 0.015;
+        color = lerp(color, color * float3(0.48, 0.62, 0.58), saturate(floorLattice) * 0.080);
+        color += float3(0.14, 0.74, 1.00) * arena * wetness * (0.024 + heroBias * 0.014);
+        color = lerp(color, color * 1.028, arena * clearRadius * 0.055);
         return color;
     }
 
@@ -983,7 +996,7 @@ float3 ApplyReferenceShotPolish(float3 color, float2 uv, float2 centered) {
         smoothstep(0.30, 0.86, length(centered * float2(0.72, 1.08))) * arena;
     float3 arcane = StyleHudTint();
     float3 ember = float3(1.00, 0.050, 0.090);
-    color += arcane * ribs * (0.014 + glow * 0.030);
+    color += arcane * ribs * (0.014 + glow * 0.030 + heroBias * 0.012);
     color += lerp(arcane, ember, 0.45 + corruption * 0.28) * altar * (0.030 + glow * 0.050 + descent * 0.026);
     color += ember * spine * (0.010 + corruption * 0.036 + descent * 0.020);
     color = lerp(color, color * float3(1.05, 0.78, 0.98), saturate(ribs + altar) * 0.06);
@@ -998,6 +1011,8 @@ float3 ProceduralSceneOverlay(float2 uv, float2 centered) {
     float glow = StyleWeight(gVisualStyleAtmosphere, 4u);
     float fog = StyleWeight(gVisualStyleAtmosphere, 8u);
     float descent = StyleWeight(gVisualStyleAtmosphere, 12u);
+    float foliageDensity = ShotWeight(8u);
+    float heroBias = ShotWeight(12u);
     float arena = smoothstep(1.18, 0.28, length(centered * float2(0.82, 1.18)));
     float edge = smoothstep(0.28, 1.08, length(centered * float2(0.84, 1.12))) * arena;
     float rndA = 0.0;
@@ -1012,15 +1027,15 @@ float3 ProceduralSceneOverlay(float2 uv, float2 centered) {
 
     float3 overlay = float3(0.0, 0.0, 0.0);
     if (biome <= 1u) {
-        float mossMask = dotA * edge * step(0.72 - moss * 0.20, rndA);
+        float mossMask = dotA * edge * step(0.72 - moss * 0.20 - foliageDensity * 0.10, rndA);
         float flowerMask = dotB * edge * step(0.955, rndB);
         overlay += float3(0.020, 0.052, 0.024) * mossMask * (0.10 + moss * 0.14);
-        overlay += float3(0.90, 0.82, 0.56) * flowerMask * 0.050;
+        overlay += float3(0.90, 0.82, 0.56) * flowerMask * (0.040 + foliageDensity * 0.025);
         overlay += float3(0.92, 0.68, 0.32) * wetDot * arena * wetness * step(0.92, rndC) * 0.024;
     } else {
         float emberMask = sparkDot * arena * step(0.90 - corruption * 0.10, rndD);
         float dustMask = dotA * arena * step(0.92 - fog * 0.08, rndA);
-        overlay += StyleHudTint() * dustMask * (0.006 + glow * 0.018);
+        overlay += StyleHudTint() * dustMask * (0.006 + glow * 0.018 + heroBias * 0.008);
         overlay += float3(1.00, 0.06, 0.12) * emberMask * (0.026 + corruption * 0.050);
     }
 
@@ -1032,6 +1047,10 @@ float3 ApplyScenePost(float3 color, float2 uv, float2 texel) {
     float glow = StyleWeight(gVisualStyleAtmosphere, 4u);
     float fog = StyleWeight(gVisualStyleAtmosphere, 8u);
     float descent = saturate((float)gDescentPercent * 0.01);
+    float ptMode = gRenderQuality >= 5u ? 1.0 : 0.0;
+    float bloomScale = lerp(1.0, 0.34, ptMode);
+    float screenFxScale = lerp(1.0, 0.12, ptMode);
+    float polishScale = lerp(1.0, 0.34, ptMode);
     uint biome = StyleBiome();
     float2 centered = uv * 2.0 - 1.0;
     float vignette = saturate(dot(centered, centered));
@@ -1043,39 +1062,44 @@ float3 ApplyScenePost(float3 color, float2 uv, float2 texel) {
     float luma = Luminance(color);
     float focusFalloff = smoothstep(0.40, 1.06, vignette);
     float verticalHaze = smoothstep(0.92, 0.12, uv.y);
-    float sceneContrast = 1.20 + glow * 0.085 + descent * 0.085;
+    float sceneContrast = lerp(1.22 + glow * 0.070 + descent * 0.070, 1.13 + glow * 0.035 + descent * 0.035, ptMode);
     float3 preSoft = color;
 
     color = EdgeAwareSceneSample(uv, texel, color);
-    color = lerp(color, soft, focusFalloff * (0.15 + fog * 0.06));
-    color += (preSoft - soft) * (0.095 + glow * 0.035) * (1.0 - focusFalloff * 0.42);
-    color += bloom * (0.22 + glow * 0.22);
-    color += glare * (0.18 + glow * 0.15 + descent * 0.070);
+    color = lerp(color, soft, focusFalloff * (0.15 + fog * 0.06) * lerp(1.0, 0.44, ptMode));
+    color += (preSoft - soft) * (0.095 + glow * 0.035) * (1.0 - focusFalloff * 0.42) * lerp(1.0, 0.55, ptMode);
+    color += bloom * (0.31 + glow * 0.28) * bloomScale;
+    color += glare * (0.25 + glow * 0.20 + descent * 0.085) * bloomScale;
     color *= grade;
     color = (color - 0.5) * sceneContrast + 0.5;
     luma = Luminance(color);
     color = lerp(float3(luma, luma, luma), color, 1.10 + glow * 0.12 + descent * 0.08);
-    color *= 1.0 - ReferenceDepthShadow(uv, centered) * (biome <= 1u ? 0.34 : 0.56);
-    float3 shaftColor = biome <= 1u ? float3(0.94, 0.70, 0.40) : StyleHudTint();
-    color += shaftColor * SunShaftMask(uv, centered) * (biome <= 1u ? 0.22 : 0.68);
-    color += ScreenLightPool(uv, centered);
-    color += ReferenceKeyLight(uv, centered);
-    color += ReferenceWetGlints(uv, centered);
-    color += ReferenceFloorMosaic(uv, centered);
-    color += ReferenceVolumetricVeil(uv, centered);
-    color += ReferenceSetDressingLights(uv, centered);
-    color += ProceduralSceneOverlay(uv, centered);
+    color *= 1.0 - ReferenceDepthShadow(uv, centered) * (biome <= 1u ? 0.28 : 0.56) * lerp(1.0, 0.52, ptMode);
+    float3 shaftColor = biome <= 1u ? float3(0.92, 0.82, 0.62) : StyleHudTint();
+    color += shaftColor * SunShaftMask(uv, centered) * (biome <= 1u ? 0.14 : 0.68) * screenFxScale;
+    color += ScreenLightPool(uv, centered) * screenFxScale;
+    color += ReferenceKeyLight(uv, centered) * screenFxScale;
+    color += ReferenceWetGlints(uv, centered) * screenFxScale;
+    color += ReferenceFloorMosaic(uv, centered) * screenFxScale;
+    color += ReferenceVolumetricVeil(uv, centered) * screenFxScale;
+    color += ReferenceSetDressingLights(uv, centered) * screenFxScale;
+    color += ProceduralSceneOverlay(uv, centered) * lerp(1.0, 0.30, ptMode);
     color += fogTint * verticalHaze * (0.012 + fog * 0.020 + descent * 0.030);
-    color = ApplyReferenceForeground(color, uv, centered);
-    color = ApplySunlitShadowGrade(color, uv, centered);
-    color = ApplyReferenceShotPolish(color, uv, centered);
-    color = ApplyReferenceColorPipeline(color, uv, centered);
+    float liftedShadow = 1.0 - smoothstep(0.035, 0.22, Luminance(color));
+    float edgeLift = smoothstep(0.38, 1.30, length(centered * float2(0.86, 1.10)));
+    color += (biome <= 1u ? fogTint * 0.46 + float3(0.008, 0.022, 0.020) : fogTint * 0.48 + StyleHudTint() * 0.040) *
+        liftedShadow * (0.026 + fog * 0.070 + edgeLift * (biome <= 1u ? 0.070 : 0.080));
+    float3 polished = ApplyReferenceForeground(color, uv, centered);
+    polished = ApplySunlitShadowGrade(polished, uv, centered);
+    polished = ApplyReferenceShotPolish(polished, uv, centered);
+    polished = ApplyReferenceColorPipeline(polished, uv, centered);
+    color = lerp(color, polished, polishScale);
     color = lerp(color, fogTint, saturate(vignette * (0.016 + fog * 0.038 + descent * 0.044)));
-    color *= 1.00 - vignette * (0.34 + descent * 0.20);
-    color = max(color - (0.019 + descent * 0.007), 0.0) * (1.06 + glow * 0.026);
+    color *= 1.00 - vignette * (biome <= 1u ? 0.31 : 0.34 + descent * 0.20);
+    color = max(color - (biome <= 1u ? 0.006 : 0.011 + descent * 0.005), 0.0) * (1.105 + glow * 0.040);
     float highlightGate = smoothstep(0.58, 1.42, Luminance(color));
     float3 compressedHighlights = (color * 1.10) / (1.0 + color * (0.48 + fog * 0.18));
-    color = lerp(color, compressedHighlights, highlightGate * (biome <= 1u ? 0.62 : 0.44));
+    color = lerp(color, compressedHighlights, highlightGate * (biome <= 1u ? 0.54 : 0.42));
     return FilmicToneMap(color);
 }
 
@@ -1097,7 +1121,7 @@ float SpriteAtlasMask(uint atlasIndex, float2 local) {
 }
 
 void DrawVfxSprites(inout float3 color, inout float alpha, float2 pixel) {
-    uint count = min(gSpriteCount, 96u);
+    uint count = min(gSpriteCount, 128u);
     [loop]
     for (uint i = 0u; i < count; ++i) {
         RenderSprite sprite = gSprites[i];

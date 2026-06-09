@@ -6,7 +6,12 @@
 
 #include <climits>
 #include <cstdio>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace rogue {
 
@@ -20,6 +25,83 @@ bool Failed(HRESULT hr, const char* label) {
     std::snprintf(buffer, sizeof(buffer), "%s failed: 0x%08x\n", label, static_cast<unsigned>(hr));
     OutputDebugStringA(buffer);
     return true;
+}
+
+void WriteLe16(std::ofstream& out, uint16_t value) {
+    const char bytes[2] = {
+        static_cast<char>(value & 0xffu),
+        static_cast<char>((value >> 8u) & 0xffu)
+    };
+    out.write(bytes, sizeof(bytes));
+}
+
+void WriteLe32(std::ofstream& out, uint32_t value) {
+    const char bytes[4] = {
+        static_cast<char>(value & 0xffu),
+        static_cast<char>((value >> 8u) & 0xffu),
+        static_cast<char>((value >> 16u) & 0xffu),
+        static_cast<char>((value >> 24u) & 0xffu)
+    };
+    out.write(bytes, sizeof(bytes));
+}
+
+bool WriteRgbaReadbackAsBmp(
+    const std::wstring& path,
+    const uint8_t* rgba,
+    uint32_t width,
+    uint32_t height,
+    uint32_t rowPitch) {
+    if (path.empty() || !rgba || width == 0 || height == 0 || rowPitch < width * 4u) {
+        return false;
+    }
+
+    std::error_code ec;
+    const std::filesystem::path outputPath(path);
+    const std::filesystem::path parent = outputPath.parent_path();
+    if (!parent.empty()) {
+        std::filesystem::create_directories(parent, ec);
+        if (ec) {
+            return false;
+        }
+    }
+
+    std::ofstream out(outputPath, std::ios::binary);
+    if (!out) {
+        return false;
+    }
+
+    const uint32_t imageBytes = width * height * 4u;
+    const uint32_t fileBytes = 14u + 40u + imageBytes;
+    out.write("BM", 2);
+    WriteLe32(out, fileBytes);
+    WriteLe16(out, 0u);
+    WriteLe16(out, 0u);
+    WriteLe32(out, 54u);
+    WriteLe32(out, 40u);
+    WriteLe32(out, width);
+    WriteLe32(out, static_cast<uint32_t>(-static_cast<int32_t>(height)));
+    WriteLe16(out, 1u);
+    WriteLe16(out, 32u);
+    WriteLe32(out, 0u);
+    WriteLe32(out, imageBytes);
+    WriteLe32(out, 2835u);
+    WriteLe32(out, 2835u);
+    WriteLe32(out, 0u);
+    WriteLe32(out, 0u);
+
+    std::vector<uint8_t> row(width * 4u);
+    for (uint32_t y = 0; y < height; ++y) {
+        const uint8_t* src = rgba + static_cast<std::size_t>(rowPitch) * y;
+        for (uint32_t x = 0; x < width; ++x) {
+            row[x * 4u + 0u] = src[x * 4u + 2u];
+            row[x * 4u + 1u] = src[x * 4u + 1u];
+            row[x * 4u + 2u] = src[x * 4u + 0u];
+            row[x * 4u + 3u] = src[x * 4u + 3u];
+        }
+        out.write(reinterpret_cast<const char*>(row.data()), static_cast<std::streamsize>(row.size()));
+    }
+
+    return static_cast<bool>(out);
 }
 
 }
@@ -90,6 +172,10 @@ void D3D12Context::Shutdown() {
     }
 }
 
+void D3D12Context::RequestFrameCapture(std::wstring path) {
+    pendingCapturePath_ = std::move(path);
+}
+
 bool D3D12Context::RenderFrame(float clearPulse, D3D12FrameCallback callback, void* userData, const D3D12OverlayConstants* overlay) {
     ID3D12CommandAllocator* allocator = commandAllocators_[frameIndex_].Get();
     if (Failed(allocator->Reset(), "CommandAllocator::Reset")) {
@@ -125,6 +211,85 @@ bool D3D12Context::RenderFrame(float clearPulse, D3D12FrameCallback callback, vo
         DrawComposite(callbackResult.descriptorHeap, callbackResult.compositeSrv, overlay);
     }
 
+    std::wstring capturePath;
+    Microsoft::WRL::ComPtr<ID3D12Resource> captureReadback;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT captureFootprint{};
+    UINT captureRows = 0;
+    UINT64 captureRowBytes = 0;
+    UINT64 captureTotalBytes = 0;
+    if (!pendingCapturePath_.empty()) {
+        capturePath = std::move(pendingCapturePath_);
+        pendingCapturePath_.clear();
+
+        ID3D12Resource* source = renderTargets_[frameIndex_].Get();
+        const D3D12_RESOURCE_DESC sourceDesc = source->GetDesc();
+        device_->GetCopyableFootprints(
+            &sourceDesc,
+            0,
+            1,
+            0,
+            &captureFootprint,
+            &captureRows,
+            &captureRowBytes,
+            &captureTotalBytes);
+
+        D3D12_HEAP_PROPERTIES heapProps{};
+        heapProps.Type = D3D12_HEAP_TYPE_READBACK;
+        heapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+        heapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+        heapProps.CreationNodeMask = 1;
+        heapProps.VisibleNodeMask = 1;
+
+        D3D12_RESOURCE_DESC readbackDesc{};
+        readbackDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        readbackDesc.Alignment = 0;
+        readbackDesc.Width = captureTotalBytes;
+        readbackDesc.Height = 1;
+        readbackDesc.DepthOrArraySize = 1;
+        readbackDesc.MipLevels = 1;
+        readbackDesc.Format = DXGI_FORMAT_UNKNOWN;
+        readbackDesc.SampleDesc.Count = 1;
+        readbackDesc.SampleDesc.Quality = 0;
+        readbackDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        readbackDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+        if (Failed(device_->CreateCommittedResource(
+            &heapProps,
+            D3D12_HEAP_FLAG_NONE,
+            &readbackDesc,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            nullptr,
+            IID_PPV_ARGS(&captureReadback)), "Create capture readback resource")) {
+            lastError_ = "Capture readback resource creation failed.";
+            return false;
+        }
+
+        D3D12_RESOURCE_BARRIER toCopy{};
+        toCopy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        toCopy.Transition.pResource = source;
+        toCopy.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        toCopy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        toCopy.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        commandList_->ResourceBarrier(1, &toCopy);
+
+        D3D12_TEXTURE_COPY_LOCATION srcLocation{};
+        srcLocation.pResource = source;
+        srcLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        srcLocation.SubresourceIndex = 0;
+
+        D3D12_TEXTURE_COPY_LOCATION dstLocation{};
+        dstLocation.pResource = captureReadback.Get();
+        dstLocation.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        dstLocation.PlacedFootprint = captureFootprint;
+
+        commandList_->CopyTextureRegion(&dstLocation, 0, 0, 0, &srcLocation, nullptr);
+
+        D3D12_RESOURCE_BARRIER toRenderTarget = toCopy;
+        toRenderTarget.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        toRenderTarget.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        commandList_->ResourceBarrier(1, &toRenderTarget);
+    }
+
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
     commandList_->ResourceBarrier(1, &barrier);
@@ -138,6 +303,26 @@ bool D3D12Context::RenderFrame(float clearPulse, D3D12FrameCallback callback, vo
     swapChain_->Present(0, 0);
     if (!WaitForGpu()) {
         return false;
+    }
+    if (captureReadback) {
+        uint8_t* mapped = nullptr;
+        D3D12_RANGE readRange{0, static_cast<SIZE_T>(captureTotalBytes)};
+        if (Failed(captureReadback->Map(0, &readRange, reinterpret_cast<void**>(&mapped)), "Map capture readback")) {
+            lastError_ = "Capture readback map failed.";
+            return false;
+        }
+        const bool wrote = WriteRgbaReadbackAsBmp(
+            capturePath,
+            mapped + captureFootprint.Offset,
+            static_cast<uint32_t>(width_),
+            static_cast<uint32_t>(height_),
+            captureFootprint.Footprint.RowPitch);
+        D3D12_RANGE writeRange{0, 0};
+        captureReadback->Unmap(0, &writeRange);
+        if (!wrote) {
+            lastError_ = "Capture BMP write failed.";
+            return false;
+        }
     }
     frameIndex_ = swapChain_->GetCurrentBackBufferIndex();
     return callbackResult.ok;

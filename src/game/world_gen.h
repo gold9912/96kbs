@@ -43,9 +43,10 @@ struct EngineConfig {
     uint32_t height = 1080;
     uint32_t renderScalePercent = 100;
     uint32_t fpsLimit = 120;
-    uint32_t renderQuality = 2;
+    uint32_t renderQuality = 5;
     int startFloorIndex = 0;
     int smokeCombatRoom = -1;
+    bool referenceTarget = false;
     bool debugText = true;
     bool requireDxr = true;
 };

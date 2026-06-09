@@ -29,6 +29,27 @@ readability, and final-frame postprocessing. The acceptance target is at least
 code must not copy pixels or ship the reference assets; it must reproduce the
 same design parameters procedurally from compact rules.
 
+## Reference Target Preset
+
+The canonical local capture for this visual target is:
+
+```powershell
+.\build\rogue96.exe --reference-target=1
+```
+
+The preset means floor `0`, combat room `1`, `1920x1080`, render scale `100`,
+DXR quality `5`, `180` smoke frames, and
+`artifacts\reference_target.bmp` as the default capture path. Acceptance runs
+should pair it with:
+
+```powershell
+ctest --test-dir build --output-on-failure
+cmake --build build --target size_report
+```
+
+The capture is documentation output, not an asset source. The runtime remains
+fully procedural.
+
 ## Visual Pillars
 
 - Isometric clarity first: silhouettes, attack arcs, enemy tells, HP/status
@@ -77,10 +98,26 @@ Each active room receives a deterministic `RoomVisualStyle`:
 - `moss`, `wetness`, `cracks`, `decay`, `corruption`, `glow`, `fog`: weights in
   `[0, 1]`, packed to nibbles before reaching shaders.
 
+`ShotLayout` stages the active room on top of `RoomVisualStyle`:
+
+- `keyLightSide`, `windowFrame`, `foregroundMask`: compact identity nibbles
+  for top/right light language and foreground corner treatment.
+- `combatClearRadius`: keeps the middle of the arena open for player movement,
+  enemies, tells, and slash VFX.
+- `edgeDensity`, `foliageDensity`: push prop and foliage richness to perimeter
+  and corners.
+- `heroVfxBias`, `warmCoolContrast`: reserve brightness and bloom response for
+  the player slash while keeping warm window light and cool shadows coherent.
+
+`ShotLayoutPacked` travels with frame constants and overlay constants so world
+geometry, DXR shading, and fullscreen composite share one staging decision.
+
 ## Material Grammar
 
 - Stone is the base surface everywhere. Variation comes from generated grids,
   slab masks, cracks, edge lines, and biome palette shifts.
+- `RtTriangleMetadata.styleTag` stores compact surface role, element, surface
+  angle, and emissive hints without increasing `kMaxDxrMaterials`.
 - Moss and overgrowth tint floor edges and quiet corners; this must never cover
   enemy tells or player attack VFX.
 - Wetness adds cool highlights and darker floor patches rather than a texture.
@@ -110,18 +147,31 @@ Each active room receives a deterministic `RoomVisualStyle`:
 
 ## Silhouettes And VFX
 
-- Player: cyan core and blade/readability accent, sharp and compact.
-- Brute: broad heavy pyramid form; Caster: taller magic form; Skirmisher:
-  smaller fast form with blade accent; Bulwark: blocky shield form; Boss:
-  stacked block/pyramid ritual silhouette.
+- Player: katana-first cyan core, blade/readability accent, mask, shoulders,
+  cloak/armor hints, and sharp compact silhouette.
+- Brute: broad heavy body and weapon; Caster: floating magic silhouette;
+  Skirmisher/skeleton: small fast bony form with blade accent; Bulwark: blocky
+  shielded armor; Boss: stacked ritual armor and larger emissive silhouette.
 - Player action VFX keeps cyan as the primary readability color, with element
   tint only as a secondary accent.
+- Character poses use a procedural `windup -> impact -> recovery` timeline,
+  with idle bob, locomotion lean, weapon sway, squash/stretch, hit reaction,
+  caster floating, and death collapse/dissolve layered through generated
+  geometry and transient VFX.
+- Katana attacks should read as a backward windup, hard impact crescent,
+  recovery overshoot, afterimage/streak, floor glow, and small particles.
 - Enemy threat tells use element color but stay thinner and more restrained than
   player attack feedback.
+- Death and kill beats should emit collapse, burst motes, and floor ripples
+  without competing with the active player slash.
 - Weapon-local glow and elemental hit pulses use a fixed-capacity `RenderSprite`
   list and the embedded micro atlas for snowflakes, droplets, flame, lightning,
   sparks, slashes, rings, and wisps. These sprites must stay small and local to
   weapons, statuses, projectiles, or short-lived combat events.
+
+The fixed visual budgets are `kMaxRenderSprites = 128` and
+`kMaxRenderVfxPulses = 48`. Overflow is a test failure; effects must degrade by
+priority or compactness, not by unbounded allocation or runtime asset loads.
 
 ## HUD
 

@@ -127,7 +127,7 @@ bool DxrPipeline::CreateStateObject(ID3D12Device5* device) {
     shaderConfig.MaxAttributeSizeInBytes = 8;
 
     D3D12_RAYTRACING_PIPELINE_CONFIG pipelineConfig{};
-    pipelineConfig.MaxTraceRecursionDepth = 2;
+    pipelineConfig.MaxTraceRecursionDepth = 4;
 
     D3D12_GLOBAL_ROOT_SIGNATURE globalRoot{};
     globalRoot.pGlobalRootSignature = globalRootSignature_.Get();

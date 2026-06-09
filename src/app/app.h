@@ -9,6 +9,7 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 
 namespace rogue {
 
@@ -18,6 +19,7 @@ public:
     void Shutdown();
     void Tick(const InputState& input, float dt);
     void Render();
+    void RequestFrameCapture(std::wstring path);
     void UpdateWindowTitle(HWND hwnd, float elapsedSeconds);
 
 private:

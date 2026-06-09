@@ -14,7 +14,7 @@
 namespace rogue {
 
 constexpr uint32_t kMaxDxrMaterials = 15;
-constexpr uint32_t kMaxRenderSprites = 96;
+constexpr uint32_t kMaxRenderSprites = 128;
 
 struct CameraParams {
     Vec3 position{0.0f, 18.0f, -14.0f};
@@ -36,7 +36,9 @@ struct DxrFrameConstants {
     uint32_t visualStyleSurface = 0;
     uint32_t visualStyleAtmosphere = 0;
     uint32_t visualStyleVariant = 0;
-    uint32_t renderQuality = 2;
+    uint32_t shotLayoutIdentity = 0;
+    uint32_t shotLayoutWeights = 0;
+    uint32_t renderQuality = 5;
     uint32_t reserved0 = 0;
 };
 
@@ -147,6 +149,8 @@ struct RenderScene {
     RenderOverlayData overlay{};
     RoomVisualStyle visualStyle{};
     VisualStylePacked visualStylePacked{};
+    ShotLayout shotLayout{};
+    ShotLayoutPacked shotLayoutPacked{};
     RoomGraph world{};
     std::vector<EntityRTProxy> proxies;
     GeneratedRTGeometry generatedGeometry;
@@ -169,7 +173,8 @@ RenderScene BuildRenderScene(
     uint32_t runStatus = 0,
     uint32_t displayWidth = 0,
     uint32_t displayHeight = 0,
-    uint32_t renderQuality = 2);
+    uint32_t renderQuality = 5,
+    bool referenceTarget = false);
 
 }
 

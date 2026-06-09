@@ -185,6 +185,48 @@ VisualStylePacked PackVisualStyle(const RoomVisualStyle& style) {
     return packed;
 }
 
+ShotLayout BuildShotLayout(const RoomGraph& world, int activeRoom, const RoomVisualStyle& style) {
+    const int roomIndex = activeRoom >= 0 && activeRoom < world.roomCount ? activeRoom : 0;
+    uint32_t hash = HashMix(0x5107f00du, world.seed);
+    hash = HashMix(hash, static_cast<uint32_t>(roomIndex));
+    hash = HashMix(hash, static_cast<uint32_t>(style.biome));
+    hash = HashMix(hash, style.floorIndex);
+    hash = HashMix(hash, style.paletteId);
+
+    ShotLayout layout{};
+    layout.keyLightSide = style.biome <= VisualBiome::OvergrownSanctuary ? 0u : 2u;
+    layout.windowFrame = style.biome <= VisualBiome::OvergrownSanctuary ? 1u : 2u;
+    layout.foregroundMask = style.descent > 0.55f ? 2u : 1u;
+
+    const float jitterA = HashUnit(HashMix(hash, 0x81u)) - 0.5f;
+    const float jitterB = HashUnit(HashMix(hash, 0x97u)) - 0.5f;
+    const float warmBiome = style.biome <= VisualBiome::OvergrownSanctuary ? 1.0f : 0.0f;
+    const float lush = style.biome == VisualBiome::OvergrownSanctuary ? 1.0f : 0.0f;
+    const float deep = style.biome == VisualBiome::AbyssCrypt ? 1.0f : 0.0f;
+
+    layout.combatClearRadius = Clamp(0.62f + style.descent * 0.08f - style.fog * 0.04f, 0.48f, 0.82f);
+    layout.edgeDensity = Clamp(0.68f + style.decay * 0.16f + style.fog * 0.10f + jitterA * 0.05f, 0.42f, 1.0f);
+    layout.foliageDensity = Clamp(0.22f + style.moss * 0.72f + lush * 0.14f - style.descent * 0.20f + jitterB * 0.04f, 0.05f, 1.0f);
+    layout.heroVfxBias = Clamp(0.70f + style.glow * 0.18f + deep * 0.04f, 0.54f, 1.0f);
+    layout.warmCoolContrast = Clamp(0.62f + warmBiome * 0.20f + style.wetness * 0.10f + style.corruption * 0.08f, 0.48f, 1.0f);
+    return layout;
+}
+
+ShotLayoutPacked PackShotLayout(const ShotLayout& layout) {
+    ShotLayoutPacked packed{};
+    packed.identity =
+        ((layout.keyLightSide & 0xfu) << kShotLayoutKeyLightSideShift) |
+        ((layout.windowFrame & 0xfu) << kShotLayoutWindowFrameShift) |
+        ((layout.foregroundMask & 0xfu) << kShotLayoutForegroundMaskShift);
+    packed.weights =
+        (QuantizeWeight(layout.combatClearRadius) << kShotLayoutCombatClearShift) |
+        (QuantizeWeight(layout.edgeDensity) << kShotLayoutEdgeDensityShift) |
+        (QuantizeWeight(layout.foliageDensity) << kShotLayoutFoliageDensityShift) |
+        (QuantizeWeight(layout.heroVfxBias) << kShotLayoutHeroVfxBiasShift) |
+        (QuantizeWeight(layout.warmCoolContrast) << kShotLayoutWarmCoolContrastShift);
+    return packed;
+}
+
 uint32_t VisualStyleHash(const RoomVisualStyle& style) {
     uint32_t hash = HashMix(0x7651f00du, static_cast<uint32_t>(style.biome));
     hash = HashMix(hash, style.paletteId);
@@ -208,24 +250,24 @@ Vec3 VisualStyleColor(const RoomVisualStyle& style, VisualStyleColorRole role) {
     switch (style.biome) {
     case VisualBiome::SunlitRuins:
         switch (role) {
-        case VisualStyleColorRole::Floor: return Mix(Vec3{0.190f, 0.188f, 0.170f}, Vec3{0.078f, 0.112f, 0.070f}, style.moss * 0.12f + variant * 0.10f);
-        case VisualStyleColorRole::Wall: return Vec3{0.180f + variant * 0.06f, 0.160f, 0.128f};
-        case VisualStyleColorRole::Corridor: return Vec3{0.112f, 0.118f + variant * 0.030f, 0.110f};
-        case VisualStyleColorRole::Fog: return Vec3{0.160f, 0.120f, 0.070f};
+        case VisualStyleColorRole::Floor: return Mix(Vec3{0.148f, 0.146f, 0.128f}, Vec3{0.060f, 0.094f, 0.055f}, style.moss * 0.14f + variant * 0.10f);
+        case VisualStyleColorRole::Wall: return Vec3{0.118f + variant * 0.035f, 0.104f, 0.080f};
+        case VisualStyleColorRole::Corridor: return Vec3{0.074f, 0.082f + variant * 0.020f, 0.076f};
+        case VisualStyleColorRole::Fog: return Vec3{0.105f, 0.088f, 0.052f};
         case VisualStyleColorRole::Hud: return Vec3{0.24f, 0.96f, 0.84f};
-        case VisualStyleColorRole::Light: return Vec3{0.86f, 0.56f, 0.28f};
+        case VisualStyleColorRole::Light: return Vec3{1.00f, 0.72f, 0.34f};
         case VisualStyleColorRole::Danger: return Vec3{0.88f, 0.18f, 0.08f};
         case VisualStyleColorRole::Control: return Vec3{0.24f, 0.80f, 0.62f};
         }
         break;
     case VisualBiome::OvergrownSanctuary:
         switch (role) {
-        case VisualStyleColorRole::Floor: return Mix(Vec3{0.112f, 0.112f, 0.098f}, Vec3{0.046f, 0.106f, 0.052f}, style.moss * 0.24f + variant * 0.16f);
-        case VisualStyleColorRole::Wall: return Vec3{0.110f, 0.098f + variant * 0.10f, 0.074f};
-        case VisualStyleColorRole::Corridor: return Vec3{0.052f, 0.076f, 0.068f + variant * 0.10f};
-        case VisualStyleColorRole::Fog: return Vec3{0.050f, 0.092f, 0.074f};
+        case VisualStyleColorRole::Floor: return Mix(Vec3{0.092f, 0.094f, 0.080f}, Vec3{0.030f, 0.088f, 0.040f}, style.moss * 0.24f + variant * 0.16f);
+        case VisualStyleColorRole::Wall: return Vec3{0.076f, 0.070f + variant * 0.065f, 0.052f};
+        case VisualStyleColorRole::Corridor: return Vec3{0.036f, 0.060f, 0.052f + variant * 0.060f};
+        case VisualStyleColorRole::Fog: return Vec3{0.030f, 0.066f, 0.052f};
         case VisualStyleColorRole::Hud: return Vec3{0.22f, 0.95f, 0.76f};
-        case VisualStyleColorRole::Light: return Vec3{0.76f, 0.54f, 0.30f};
+        case VisualStyleColorRole::Light: return Vec3{0.95f, 0.70f, 0.36f};
         case VisualStyleColorRole::Danger: return Vec3{0.78f, 0.22f, 0.12f};
         case VisualStyleColorRole::Control: return Vec3{0.14f, 0.74f, 0.50f};
         }
@@ -288,6 +330,14 @@ uint32_t PackedVisualStyleLightRig(const VisualStylePacked& packed) {
 
 float PackedVisualStyleDescent(const VisualStylePacked& packed) {
     return VisualStylePackedWeight(packed.atmosphere, kVisualStyleDescentShift);
+}
+
+uint32_t ShotLayoutPackedNibble(uint32_t packed, uint32_t shift) {
+    return (packed >> shift) & 0xfu;
+}
+
+float ShotLayoutPackedWeight(uint32_t packed, uint32_t shift) {
+    return static_cast<float>(ShotLayoutPackedNibble(packed, shift)) / 15.0f;
 }
 
 }

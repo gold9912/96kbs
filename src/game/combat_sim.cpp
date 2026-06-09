@@ -546,6 +546,11 @@ void CombatSim::Reset(const RoomGraph& world) {
         const float shieldScale = 1.0f + Clamp(static_cast<float>(world.floorIndex), 0.0f, 10.0f) * 0.08f;
         enemy.shield = (enemy.kind == EnemyKind::Boss ? 56.0f : (enemy.kind == EnemyKind::Bulwark ? 32.0f : 0.0f)) * shieldScale;
         enemy.weapon = EnemyWeapon(enemy.kind);
+        enemy.velocity = Vec2{};
+        enemy.movePhase = 0.0f;
+        enemy.hitReactTimer = 0.0f;
+        enemy.hitReactDirection = Vec2{};
+        enemy.lastHitElement = Element::None;
         enemy.active = false;
     }
 }
@@ -573,6 +578,7 @@ void CombatSim::Tick(const InputState& input, float dt, RoomGraph& world) {
     Vec2 move = NormalizeOr(Vec2{input.moveX, input.moveY}, Vec2{0.0f, 0.0f});
     Vec2 aim = NormalizeOr(Vec2{input.aimX, input.aimY}, player_.facing);
     player_.facing = aim;
+    const Vec2 previousPlayerPosition = player_.position;
 
     float speed = kPlayerSpeed * player_.speedMultiplier * StatusMoveMultiplier(player_.statuses);
     if (player_.rootTimer > 0.0f || player_.statuses.stun > 0.0f) {
@@ -586,6 +592,11 @@ void CombatSim::Tick(const InputState& input, float dt, RoomGraph& world) {
     const Vec2 candidatePosition = player_.position + move * (speed * dt);
     if (IsTraversablePosition(world, player_.roomIndex, candidatePosition)) {
         player_.position = candidatePosition;
+    }
+    player_.velocity = (player_.position - previousPlayerPosition) * (1.0f / dt);
+    const float playerSpeedSq = LengthSq(player_.velocity);
+    if (playerSpeedSq > 0.0001f) {
+        player_.movePhase += std::sqrt(playerSpeedSq) * dt * 2.85f;
     }
 
     const int newRoom = FindRoomAt(world, player_.position);
@@ -622,6 +633,7 @@ CombatSnapshot CombatSim::Snapshot(const RoomGraph& world) const {
 
 void CombatSim::PlacePlayer(Vec2 position, int roomIndex) {
     player_.position = position;
+    player_.velocity = Vec2{};
     player_.castOrigin = position;
     player_.roomIndex = roomIndex;
 }
@@ -670,6 +682,9 @@ int CombatSim::DespawnEnemiesInRoom(int roomIndex) {
             enemy.hp = 0.0f;
             enemy.active = false;
             enemy.velocity = Vec2{};
+            enemy.movePhase = 0.0f;
+            enemy.hitReactTimer = 0.0f;
+            enemy.hitReactDirection = Vec2{};
             enemy.statuses = ActorStatusSet{};
             ++despawned;
         }
@@ -692,6 +707,7 @@ void CombatSim::RestorePlayerProgress(const PlayerState& progress, Vec2 position
         : 0;
 
     player_.position = position;
+    player_.velocity = Vec2{};
     player_.castOrigin = position;
     player_.roomIndex = roomIndex;
     player_.facing = NormalizeOr(progress.facing, Vec2{1.0f, 0.0f});
@@ -717,6 +733,10 @@ void CombatSim::RestorePlayerProgress(const PlayerState& progress, Vec2 position
     player_.actionDuration = 0.0f;
     player_.actionImpactTime = 0.0f;
     player_.actionRecovery = 0.0f;
+    player_.movePhase = 0.0f;
+    player_.hitReactTimer = 0.0f;
+    player_.hitReactDirection = Vec2{};
+    player_.lastHitElement = Element::None;
     SyncPlayerActionFeedback();
 }
 
@@ -852,6 +872,7 @@ void CombatSim::TickStatuses(float dt) {
 
 void CombatSim::TickActionFeedbackTimers(float dt) {
     player_.actionTimer = Clamp(player_.actionTimer - dt, 0.0f, 99.0f);
+    player_.hitReactTimer = Clamp(player_.hitReactTimer - dt, 0.0f, 99.0f);
     if (player_.actionTimer <= 0.0f) {
         player_.actionDuration = 0.0f;
         player_.actionImpactTime = 0.0f;
@@ -860,6 +881,7 @@ void CombatSim::TickActionFeedbackTimers(float dt) {
 
     for (EnemyState& enemy : enemies_) {
         enemy.actionTimer = Clamp(enemy.actionTimer - dt, 0.0f, 99.0f);
+        enemy.hitReactTimer = Clamp(enemy.hitReactTimer - dt, 0.0f, 99.0f);
         if (enemy.actionTimer <= 0.0f) {
             enemy.actionDuration = 0.0f;
             enemy.actionImpactTime = 0.0f;
@@ -1506,6 +1528,10 @@ void CombatSim::ApplyDamageToEnemy(
         chilledIntensityBonus);
 
     if (damage > 0.0f) {
+        const Vec2 hitDir = NormalizeOr(enemy.position - origin, Vec2{1.0f, 0.0f});
+        enemy.hitReactTimer = 0.24f;
+        enemy.hitReactDirection = hitDir;
+        enemy.lastHitElement = element;
         enemy.hp -= damage;
         Emit(CombatEvent{CombatEventType::ActorDamaged, Faction::Enemy, enemy.roomIndex, enemyIndex, damage, element, StatusKind::None, ReactionKind::None, weapon});
     }
@@ -1621,6 +1647,9 @@ void CombatSim::TriggerElementalMicroExplosionAt(
         }
 
         target.hp -= resolvedDamage;
+        target.hitReactTimer = 0.24f;
+        target.hitReactDirection = NormalizeOr(target.position - center, Vec2{1.0f, 0.0f});
+        target.lastHitElement = element;
         Emit(CombatEvent{CombatEventType::ActorDamaged, Faction::Enemy, target.roomIndex, targetIndex, resolvedDamage, element, StatusKind::None, reaction, weapon});
         if (target.hp <= 0.0f) {
             target.hp = 0.0f;
@@ -1660,6 +1689,11 @@ void CombatSim::ApplyDamageToPlayer(float damage, Element element, WeaponId weap
         areaReactionDamage,
         chilledIntensityBonus);
 
+    if (damage > 0.0f) {
+        player_.hitReactTimer = 0.26f;
+        player_.hitReactDirection = NormalizeOr(player_.position - origin, Vec2{1.0f, 0.0f});
+        player_.lastHitElement = element;
+    }
     player_.hp -= damage;
     Emit(CombatEvent{CombatEventType::ActorDamaged, Faction::Player, player_.roomIndex, -1, damage, element, StatusKind::None, ReactionKind::None, weapon});
     if (areaReaction != ReactionKind::None && areaReactionDamage > 0.0f) {
@@ -1917,6 +1951,11 @@ void CombatSim::UpdateEnemies(float dt, RoomGraph& world) {
             enemy.position = enemy.position + enemy.velocity * dt;
         } else {
             enemy.velocity = enemy.velocity * 0.78f;
+        }
+        const float enemySpeedSq = LengthSq(enemy.velocity);
+        if (enemySpeedSq > 0.0001f) {
+            const float gaitScale = enemy.kind == EnemyKind::Boss ? 1.35f : (enemy.kind == EnemyKind::Caster ? 1.05f : 2.40f);
+            enemy.movePhase += std::sqrt(enemySpeedSq) * dt * gaitScale;
         }
 
         const int actionSlot = ActionIndex(profile.actionIndex);

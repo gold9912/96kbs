@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <span>
+#include <utility>
 
 namespace rogue {
 
@@ -69,7 +70,7 @@ RenderVfxKind WeaponActionVfxKind(AttackShape shape) {
     case AttackShape::Circle:
     case AttackShape::Orbit:
     case AttackShape::TargetArea:
-        return RenderVfxKind::WeaponRing;
+        return RenderVfxKind::WeaponBurst;
     case AttackShape::Cone:
         return RenderVfxKind::WeaponCone;
     }
@@ -87,7 +88,7 @@ float WeaponActionVfxRadius(const WeaponActionSpec& action, AttackShape shape) {
     case AttackShape::Circle:
     case AttackShape::Orbit:
     case AttackShape::TargetArea:
-        return Clamp(action.radius, 1.0f, 5.2f);
+        return Clamp(action.radius * 0.32f, 0.34f, 1.25f);
     case AttackShape::Cone:
         return Clamp(action.range > 0.0f ? action.range : action.radius, 1.4f, 4.8f);
     }
@@ -434,6 +435,9 @@ D3D12OverlayConstants MakeOverlayConstants(
     overlay.floorIndex = scene.overlay.overlayFloorIndex;
     overlay.descentPercent = scene.overlay.overlayDescentPercent;
     overlay.spriteCount = scene.spriteCount;
+    overlay.shotLayoutIdentity = scene.frame.shotLayoutIdentity;
+    overlay.shotLayoutWeights = scene.frame.shotLayoutWeights;
+    overlay.renderQuality = scene.frame.renderQuality;
     if (phase == RunPhase::RewardChoice) {
         const auto& options = session.RewardOptions();
         overlay.rewardOptionCount = static_cast<uint32_t>(session.RewardOptionCount());
@@ -482,6 +486,10 @@ bool Application::Initialize(HWND hwnd, const EngineConfig& config) {
 
 void Application::Shutdown() {
     d3d_.Shutdown();
+}
+
+void Application::RequestFrameCapture(std::wstring path) {
+    d3d_.RequestFrameCapture(std::move(path));
 }
 
 void Application::Tick(const InputState& input, float dt) {

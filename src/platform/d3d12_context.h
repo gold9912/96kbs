@@ -68,9 +68,9 @@ struct D3D12OverlayConstants {
     uint32_t floorIndex = 0;
     uint32_t descentPercent = 0;
     uint32_t spriteCount = 0;
-    uint32_t reserved1 = 0;
-    uint32_t reserved2 = 0;
-    uint32_t reserved3 = 0;
+    uint32_t shotLayoutIdentity = 0;
+    uint32_t shotLayoutWeights = 0;
+    uint32_t renderQuality = 5;
 };
 
 using D3D12FrameCallback = D3D12FrameCallbackResult (*)(ID3D12Device5* device, ID3D12GraphicsCommandList4* commandList, void* userData);
@@ -79,6 +79,7 @@ class D3D12Context {
 public:
     bool Initialize(HWND hwnd, uint32_t width, uint32_t height, bool requireDxr);
     void Shutdown();
+    void RequestFrameCapture(std::wstring path);
     bool RenderFrame(
         float clearPulse,
         D3D12FrameCallback callback = nullptr,
@@ -114,6 +115,7 @@ private:
     uint32_t frameIndex_ = 0;
     uint64_t fenceValue_ = 0;
     void* fenceEvent_ = nullptr;
+    std::wstring pendingCapturePath_{};
 
     Microsoft::WRL::ComPtr<IDXGIFactory4> factory_;
     Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter_;

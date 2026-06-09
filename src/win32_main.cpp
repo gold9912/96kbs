@@ -3,8 +3,10 @@
 #include <windows.h>
 
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include <memory>
+#include <string>
 
 namespace {
 
@@ -81,6 +83,77 @@ int ParseIntFlag(const char* commandLine, const char* flag, int fallback) {
     return std::atoi(match + std::strlen(flag));
 }
 
+std::string ParseStringFlag(const char* commandLine, const char* flag, const char* fallback) {
+    if (!commandLine || !flag) {
+        return fallback ? fallback : "";
+    }
+    const char* match = std::strstr(commandLine, flag);
+    if (!match) {
+        return fallback ? fallback : "";
+    }
+
+    const char* value = match + std::strlen(flag);
+    if (*value == '"' || *value == '\'') {
+        const char quote = *value++;
+        const char* end = value;
+        while (*end && *end != quote) {
+            ++end;
+        }
+        return std::string(value, end);
+    }
+
+    const char* end = value;
+    while (*end && *end != ' ' && *end != '\t' && *end != '\r' && *end != '\n') {
+        ++end;
+    }
+    return std::string(value, end);
+}
+
+std::wstring WideFromCommandText(const std::string& text) {
+    if (text.empty()) {
+        return {};
+    }
+
+    int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.c_str(), -1, nullptr, 0);
+    UINT codePage = CP_UTF8;
+    DWORD flags = MB_ERR_INVALID_CHARS;
+    if (length <= 0) {
+        codePage = CP_ACP;
+        flags = 0;
+        length = MultiByteToWideChar(codePage, flags, text.c_str(), -1, nullptr, 0);
+    }
+    if (length <= 0) {
+        return std::wstring(text.begin(), text.end());
+    }
+
+    std::wstring wide(static_cast<std::size_t>(length), L'\0');
+    MultiByteToWideChar(codePage, flags, text.c_str(), -1, wide.data(), length);
+    if (!wide.empty() && wide.back() == L'\0') {
+        wide.pop_back();
+    }
+    return wide;
+}
+
+std::string DefaultSmokeCapturePath(const rogue::EngineConfig& config, int smokeFrames) {
+    char path[192]{};
+    std::snprintf(
+        path,
+        sizeof(path),
+        "artifacts\\rogue96_capture_w%u_h%u_rs%u_rt%u_floor%d_room%d_frames%d.bmp",
+        config.width,
+        config.height,
+        config.renderScalePercent,
+        config.renderQuality,
+        config.startFloorIndex,
+        config.smokeCombatRoom,
+        smokeFrames);
+    return path;
+}
+
+std::string ReferenceTargetCapturePath() {
+    return "artifacts\\reference_target.bmp";
+}
+
 int ClampInt(int value, int low, int high) {
     return value < low ? low : (value > high ? high : value);
 }
@@ -129,10 +202,29 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR commandLine, int showCmd
             "--rt-quality=",
             ParseIntFlag(commandLine, "--render-quality=", static_cast<int>(config.renderQuality))),
         0,
-        2));
+        5));
     config.startFloorIndex = ClampInt(ParseIntFlag(commandLine, "--start-floor=", config.startFloorIndex), 0, 5);
     config.smokeCombatRoom = ParseIntFlag(commandLine, "--smoke-combat-room=", config.smokeCombatRoom);
-    const int smokeFrames = ParseIntFlag(commandLine, "--smoke-frames=", 0);
+    int smokeFrames = ParseIntFlag(commandLine, "--smoke-frames=", 0);
+    const std::string explicitCapturePath = ParseStringFlag(commandLine, "--capture-frame=", "");
+    const bool referenceTarget = ParseIntFlag(
+        commandLine,
+        "--reference-target=",
+        HasFlag(commandLine, "--reference-target") ? 1 : 0) != 0;
+    if (referenceTarget) {
+        config.referenceTarget = true;
+        config.width = 1920;
+        config.height = 1080;
+        config.renderScalePercent = 100;
+        config.renderQuality = 5;
+        config.startFloorIndex = 0;
+        config.smokeCombatRoom = 1;
+        smokeFrames = smokeFrames > 0 ? smokeFrames : 180;
+    }
+    const bool smokeCaptureEnabled = smokeFrames > 0 && !HasFlag(commandLine, "--no-smoke-capture");
+    const std::wstring capturePath = !explicitCapturePath.empty()
+        ? WideFromCommandText(explicitCapturePath)
+        : (smokeCaptureEnabled ? WideFromCommandText(referenceTarget ? ReferenceTargetCapturePath() : DefaultSmokeCapturePath(config, smokeFrames)) : std::wstring{});
 
     WNDCLASSEXA wc{};
     wc.cbSize = sizeof(wc);
@@ -180,6 +272,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR commandLine, int showCmd
 
     MSG msg{};
     int frameCount = 0;
+    bool captureRequested = false;
     while (msg.message != WM_QUIT) {
         while (PeekMessageA(&msg, nullptr, 0, 0, PM_REMOVE)) {
             TranslateMessage(&msg);
@@ -197,6 +290,10 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR commandLine, int showCmd
         const rogue::InputState input = ReadInput(hwnd, config, rogue::PlayerState{});
         app->Tick(input, dt);
         app->UpdateWindowTitle(hwnd, dt);
+        if (!captureRequested && !capturePath.empty() && (smokeFrames <= 0 || frameCount + 1 >= smokeFrames)) {
+            app->RequestFrameCapture(capturePath);
+            captureRequested = true;
+        }
         app->Render();
         if (smokeFrames > 0 && ++frameCount >= smokeFrames) {
             DestroyWindow(hwnd);
