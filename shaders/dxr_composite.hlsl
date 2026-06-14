@@ -67,6 +67,10 @@ struct PSIn {
     float2 uv : TEXCOORD0;
 };
 
+bool ReferenceMode() {
+    return (gReserved0 & 0x80000000u) != 0u;
+}
+
 #define CH_0 48u
 #define CH_1 49u
 #define CH_2 50u
@@ -1048,9 +1052,13 @@ float3 ApplyScenePost(float3 color, float2 uv, float2 texel) {
     float fog = StyleWeight(gVisualStyleAtmosphere, 8u);
     float descent = saturate((float)gDescentPercent * 0.01);
     float ptMode = gRenderQuality >= 5u ? 1.0 : 0.0;
+    float refMode = ReferenceMode() ? 1.0 : 0.0;
     float bloomScale = lerp(1.0, 0.34, ptMode);
     float screenFxScale = lerp(1.0, 0.12, ptMode);
     float polishScale = lerp(1.0, 0.34, ptMode);
+    bloomScale = lerp(bloomScale, 0.74, refMode);
+    screenFxScale = lerp(screenFxScale, 0.76, refMode);
+    polishScale = lerp(polishScale, 0.68, refMode);
     uint biome = StyleBiome();
     float2 centered = uv * 2.0 - 1.0;
     float vignette = saturate(dot(centered, centered));
@@ -1089,13 +1097,17 @@ float3 ApplyScenePost(float3 color, float2 uv, float2 texel) {
     float edgeLift = smoothstep(0.38, 1.30, length(centered * float2(0.86, 1.10)));
     color += (biome <= 1u ? fogTint * 0.46 + float3(0.008, 0.022, 0.020) : fogTint * 0.48 + StyleHudTint() * 0.040) *
         liftedShadow * (0.026 + fog * 0.070 + edgeLift * (biome <= 1u ? 0.070 : 0.080));
+    float blackVoid = 1.0 - smoothstep(0.014, 0.145, Luminance(color));
+    float topRightWindow = smoothstep(0.38, 1.0, uv.x) * smoothstep(0.56, 0.04, uv.y);
+    color += (fogTint * 0.54 + float3(0.032, 0.036, 0.022)) * blackVoid * refMode * 0.18;
+    color += float3(1.0, 0.76, 0.40) * topRightWindow * refMode * 0.060;
     float3 polished = ApplyReferenceForeground(color, uv, centered);
     polished = ApplySunlitShadowGrade(polished, uv, centered);
     polished = ApplyReferenceShotPolish(polished, uv, centered);
     polished = ApplyReferenceColorPipeline(polished, uv, centered);
     color = lerp(color, polished, polishScale);
     color = lerp(color, fogTint, saturate(vignette * (0.016 + fog * 0.038 + descent * 0.044)));
-    color *= 1.00 - vignette * (biome <= 1u ? 0.31 : 0.34 + descent * 0.20);
+    color *= 1.00 - vignette * (biome <= 1u ? 0.31 : 0.34 + descent * 0.20) * lerp(1.0, 0.58, refMode);
     color = max(color - (biome <= 1u ? 0.006 : 0.011 + descent * 0.005), 0.0) * (1.105 + glow * 0.040);
     float highlightGate = smoothstep(0.58, 1.42, Luminance(color));
     float3 compressedHighlights = (color * 1.10) / (1.0 + color * (0.48 + fog * 0.18));
@@ -1637,6 +1649,8 @@ float4 MainPS(PSIn input) : SV_Target0 {
     DrawVfxSprites(color, alpha, input.uv * dimensions);
 
     float uiScale = max(0.75, min(dimensions.x / 1280.0, dimensions.y / 720.0));
-    DrawHud(color, alpha, input.uv * dimensions / uiScale);
+    if (!ReferenceMode()) {
+        DrawHud(color, alpha, input.uv * dimensions / uiScale);
+    }
     return float4(color, 1.0);
 }

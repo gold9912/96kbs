@@ -1,6 +1,7 @@
 #include "render/entity_rt_proxy.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 
@@ -2584,6 +2585,109 @@ void AddOverheadSilhouetteLayer(GeneratedRTGeometry& geo, const Room& room, cons
     }
 }
 
+void AddReferenceArenaDiorama(GeneratedRTGeometry& geo, const Room& room, const RoomVisualStyle& style, uint32_t seedBase) {
+    const float x0 = room.center.x - room.halfSize.x;
+    const float x1 = room.center.x + room.halfSize.x;
+    const float z0 = room.center.y - room.halfSize.y;
+    const float z1 = room.center.y + room.halfSize.y;
+    const float spanX = room.halfSize.x * 2.0f;
+    const float spanZ = room.halfSize.y * 2.0f;
+
+    AddBox(geo, Vec3{x0 - 2.20f, -0.02f, z1 + 0.36f}, Vec3{x1 + 2.40f, 5.65f, z1 + 1.42f}, kMaterialWall);
+    AddBox(geo, Vec3{x1 + 0.46f, -0.02f, z0 - 1.20f}, Vec3{x1 + 1.42f, 5.18f, z1 + 1.34f}, kMaterialWall);
+    AddBox(geo, Vec3{x0 - 0.72f, -0.01f, z1 - 0.04f}, Vec3{x1 + 0.78f, 3.72f, z1 + 0.62f}, kMaterialWall);
+    AddBox(geo, Vec3{x1 - 0.04f, -0.01f, z0 - 0.24f}, Vec3{x1 + 0.68f, 3.38f, z1 + 0.66f}, kMaterialWall);
+    AddBox(geo, Vec3{x0 - 0.68f, -0.01f, z0 - 0.28f}, Vec3{x0 - 0.12f, 1.36f, z1 + 0.42f}, kMaterialWall);
+    AddBox(geo, Vec3{x0 - 0.52f, -0.01f, z0 - 0.62f}, Vec3{x1 + 0.36f, 0.42f, z0 + 0.08f}, kMaterialWall);
+
+    const Vec2 backLeft = Vec2{x0 + spanX * 0.12f, z1 + 0.08f};
+    const Vec2 backRight = Vec2{x1 - spanX * 0.12f, z1 + 0.08f};
+    AddSquareColumn(geo, backLeft, 0.28f, 3.42f, kMaterialWall, kMaterialHitSpark);
+    AddSquareColumn(geo, backRight, 0.30f, 3.70f, kMaterialWall, kMaterialHitSpark);
+    AddSquareColumn(geo, Vec2{x1 + 0.14f, z0 + spanZ * 0.20f}, 0.24f, 2.84f, kMaterialWall, kMaterialHitSpark);
+    AddSquareColumn(geo, Vec2{x0 - 0.18f, z0 + spanZ * 0.26f}, 0.22f, 1.62f, kMaterialWall, kMaterialWall);
+
+    const float winCx = x1 - room.halfSize.x * 0.30f;
+    const float winZ = z1 + 0.64f;
+    const float winHalfW = room.halfSize.x * 0.34f;
+    const float winY0 = 1.02f;
+    const float winY1 = 3.48f;
+    AddBox(geo, Vec3{winCx - winHalfW, winY0, winZ - 0.035f}, Vec3{winCx + winHalfW, winY1, winZ + 0.035f}, kMaterialHitSpark);
+    AddBox(geo, Vec3{winCx - winHalfW - 0.080f, winY0 - 0.080f, winZ - 0.060f}, Vec3{winCx + winHalfW + 0.080f, winY0 + 0.020f, winZ + 0.060f}, kMaterialWall);
+    AddBox(geo, Vec3{winCx - winHalfW - 0.080f, winY1 - 0.020f, winZ - 0.060f}, Vec3{winCx + winHalfW + 0.080f, winY1 + 0.095f, winZ + 0.060f}, kMaterialWall);
+    AddBox(geo, Vec3{winCx - winHalfW - 0.090f, winY0, winZ - 0.065f}, Vec3{winCx - winHalfW + 0.020f, winY1, winZ + 0.065f}, kMaterialWall);
+    AddBox(geo, Vec3{winCx + winHalfW - 0.020f, winY0, winZ - 0.065f}, Vec3{winCx + winHalfW + 0.090f, winY1, winZ + 0.065f}, kMaterialWall);
+    for (int i = 1; i <= 4; ++i) {
+        const float t = static_cast<float>(i) / 5.0f;
+        const float x = winCx - winHalfW + winHalfW * 2.0f * t;
+        AddBox(geo, Vec3{x - 0.018f, winY0, winZ - 0.078f}, Vec3{x + 0.018f, winY1, winZ + 0.078f}, kMaterialWall);
+    }
+    for (int i = 1; i <= 3; ++i) {
+        const float y = winY0 + (winY1 - winY0) * static_cast<float>(i) / 4.0f;
+        AddBox(geo, Vec3{winCx - winHalfW, y - 0.018f, winZ - 0.080f}, Vec3{winCx + winHalfW, y + 0.018f, winZ + 0.080f}, kMaterialWall);
+    }
+
+    AddLowBenchRun(geo, room, 0.02f, 0.82f, true, kMaterialWall);
+    AddLowBenchRun(geo, room, 0.84f, 0.14f, false, kMaterialWall);
+    AddPlanterCluster(geo, RoomDecorPoint(room, -0.58f, 0.78f, 0.34f), 0.70f, HashMix(seedBase, 0x651u), style);
+    AddPlanterCluster(geo, RoomDecorPoint(room, 0.66f, -0.76f, 0.34f), 0.66f, HashMix(seedBase, 0x653u), style);
+    AddPlanterCluster(geo, RoomDecorPoint(room, -0.72f, -0.70f, 0.34f), 0.56f, HashMix(seedBase, 0x655u), style);
+
+    AddBox(geo, Vec3{x0 + spanX * 0.08f, 0.004f, z1 - 0.44f}, Vec3{x1 - spanX * 0.06f, 0.026f, z1 + 0.16f}, kMaterialEnemySkirmisher);
+    AddBox(geo, Vec3{x0 - 0.16f, 0.004f, z0 + spanZ * 0.12f}, Vec3{x0 + 0.38f, 0.026f, z1 - 0.18f}, kMaterialEnemySkirmisher);
+    AddBox(geo, Vec3{x1 - 0.38f, 0.004f, z0 + spanZ * 0.10f}, Vec3{x1 + 0.18f, 0.026f, z1 - 0.12f}, kMaterialEnemySkirmisher);
+    AddBox(geo, Vec3{x0 + spanX * 0.10f, 0.004f, z0 - 0.12f}, Vec3{x0 + spanX * 0.36f, 0.024f, z0 + 0.34f}, kMaterialEnemySkirmisher);
+    AddBox(geo, Vec3{x1 - spanX * 0.34f, 0.004f, z0 - 0.10f}, Vec3{x1 - spanX * 0.08f, 0.024f, z0 + 0.30f}, kMaterialEnemySkirmisher);
+
+    for (int i = 0; i < 156; ++i) {
+        const uint32_t h = HashMix(seedBase, static_cast<uint32_t>(0xa300u + i * 37u));
+        const int side = static_cast<int>(h & 3u);
+        const float along = HashUnit(HashMix(h, 0x11u)) * 1.84f - 0.92f;
+        const float inset = HashUnit(HashMix(h, 0x23u)) * 0.14f;
+        float sx = along;
+        float sy = 0.92f - inset;
+        if (side == 1) {
+            sy = -0.92f + inset;
+        } else if (side == 2) {
+            sx = -0.94f + inset;
+            sy = along;
+        } else if (side == 3) {
+            sx = 0.94f - inset;
+            sy = along;
+        }
+        const Vec2 p = RoomDecorPoint(room, sx, sy, 0.30f);
+        const float s = 0.12f + HashUnit(HashMix(h, 0x31u)) * 0.15f + style.moss * 0.08f;
+        AddBox(
+            geo,
+            Vec3{p.x - s * 0.92f, 0.006f, p.y - s * 0.54f},
+            Vec3{p.x + s * 0.92f, 0.020f, p.y + s * 0.54f},
+            kMaterialEnemySkirmisher);
+        if ((i % 3) != 0) {
+            AddLeafClump(geo, p, s * 0.76f, h, kMaterialEnemySkirmisher, kMaterialWall);
+        }
+    }
+
+    const Vec3 lightDir{-0.86f, 0.0f, -0.44f};
+    for (int i = 0; i < 7; ++i) {
+        const float lane = (static_cast<float>(i) - 3.0f) * room.halfSize.x * 0.082f;
+        const float travel = room.halfSize.x * (0.28f + static_cast<float>(i % 3) * 0.065f);
+        const Vec3 center{
+            winCx - room.halfSize.x * 0.16f + lane + lightDir.x * travel * 0.42f,
+            0.038f,
+            room.center.y + room.halfSize.y * 0.28f + lightDir.z * travel * 0.48f
+        };
+        AddGuideStrip(
+            geo,
+            center,
+            lightDir,
+            room.halfSize.x * (0.30f + static_cast<float>(i % 3) * 0.045f),
+            0.010f + style.glow * 0.003f,
+            kMaterialHitSpark);
+    }
+
+    AddFlowerbedScatter(geo, room, style, HashMix(seedBase, 0xb901u), 64);
+}
+
 void AddStyleProps(GeneratedRTGeometry& geo, const Room& room, const RoomVisualStyle& style, int roomIndex) {
     const uint32_t seedBase = HashMix(VisualStyleHash(style), static_cast<uint32_t>(roomIndex * 977 + 0x51u));
     const float jitterA = HashUnit(HashMix(seedBase, 0x11u)) - 0.5f;
@@ -2860,6 +2964,84 @@ EntityProxyKind PlayerActionKind(AttackShape shape) {
         return EntityProxyKind::PlayerActionBurst;
     }
     return EntityProxyKind::PlayerActionBurst;
+}
+
+const Room* ReferenceRenderRoom(const RoomGraph* world, int roomIndex, bool referenceTarget) {
+    if (!referenceTarget || !world || roomIndex < 0 || roomIndex >= world->roomCount) {
+        return nullptr;
+    }
+    return &world->rooms[roomIndex];
+}
+
+Vec2 ReferenceHeroPosition(const Room& room) {
+    return Vec2{
+        room.center.x,
+        room.center.y - room.halfSize.y * 0.03f
+    };
+}
+
+Vec2 ReferenceEnemyPosition(const Room& room, uint32_t ordinal, EnemyKind kind) {
+    const float sx = std::max(2.0f, room.halfSize.x * 0.58f);
+    const float sy = std::max(1.6f, room.halfSize.y * 0.58f);
+    const std::array<Vec2, 5> offsets{{
+        Vec2{sx * 0.34f, sy * 0.78f},
+        Vec2{sx * 0.92f, sy * 0.14f},
+        Vec2{-sx * 0.82f, -sy * 0.62f},
+        Vec2{-sx * 0.44f, sy * 0.64f},
+        Vec2{sx * 0.52f, -sy * 0.72f}
+    }};
+    Vec2 p = room.center + offsets[ordinal % offsets.size()];
+    if (kind == EnemyKind::Boss) {
+        p = room.center + Vec2{sx * 0.20f, sy * 0.78f};
+    }
+    return p;
+}
+
+void StageReferencePlayer(PlayerState& player, const Room& room) {
+    const Vec2 facing = Normalize2(Vec2{1.0f, 0.16f}, Vec2{1.0f, 0.0f});
+    const Vec2 position = ReferenceHeroPosition(room);
+    player.position = position;
+    player.velocity = Vec2{0.42f, 0.08f};
+    player.facing = facing;
+    player.activeWeaponSlot = 0;
+    player.weaponSlots[0].weapon = WeaponId::Katana;
+    player.weaponSlots[0].element = Element::Electricity;
+    player.weaponSlots[0].cooldowns[0] = 0.0f;
+    player.weaponSlots[0].cooldowns[1] = 0.0f;
+    player.actionDuration = 0.52f;
+    player.actionImpactTime = 0.22f;
+    player.actionRecovery = 0.30f;
+    player.actionTimer = 0.30f;
+    player.activeActionWeapon = WeaponId::Katana;
+    player.activeActionElement = Element::Electricity;
+    player.activeActionIndex = WeaponActionIndex::Action1;
+    player.activeActionShape = AttackShape::Cone;
+    player.activeActionOrigin = position;
+    player.activeActionTarget = position + facing * 4.4f;
+    player.activeActionDirection = facing;
+    player.hitReactTimer = 0.0f;
+    player.hitReactDirection = Vec2{};
+}
+
+void StageReferenceEnemy(EnemyState& enemy, const Room& room, uint32_t ordinal, Vec2 heroPosition) {
+    enemy.position = ReferenceEnemyPosition(room, ordinal, enemy.kind);
+    enemy.velocity = Vec2{};
+    enemy.hitReactDirection = Normalize2(enemy.position - heroPosition, Vec2{1.0f, 0.0f});
+    enemy.hitReactTimer = ordinal == 1u ? 0.16f : (ordinal == 2u ? 0.08f : 0.0f);
+    enemy.lastHitElement = Element::Electricity;
+    enemy.activeActionDirection = Normalize2(heroPosition - enemy.position, Vec2{1.0f, 0.0f});
+    if (ordinal == 0u || enemy.kind == EnemyKind::Caster) {
+        enemy.actionDuration = 0.64f;
+        enemy.actionImpactTime = 0.28f;
+        enemy.actionRecovery = 0.34f;
+        enemy.actionTimer = 0.38f;
+        enemy.activeActionIndex = WeaponActionIndex::Action1;
+        enemy.activeActionShape = enemy.kind == EnemyKind::Caster ? AttackShape::Projectile : AttackShape::Cone;
+        enemy.activeActionOrigin = enemy.position;
+        enemy.activeActionTarget = heroPosition;
+    } else if (ordinal == 1u) {
+        enemy.actionTimer = 0.0f;
+    }
 }
 
 Vec3 Direction3(Vec2 direction) {
@@ -3165,11 +3347,20 @@ void AddEnemyReadabilityProxies(std::vector<EntityRTProxy>& proxies, const Enemy
 
 }
 
-std::vector<EntityRTProxy> BuildEntityProxies(const CombatSim& sim) {
+std::vector<EntityRTProxy> BuildEntityProxies(
+    const CombatSim& sim,
+    const RoomGraph* world,
+    bool referenceTarget) {
     std::vector<EntityRTProxy> proxies;
     proxies.reserve(128);
 
-    const PlayerState& player = sim.Player();
+    const PlayerState& simPlayer = sim.Player();
+    PlayerState stagedPlayer = simPlayer;
+    const Room* referenceRoom = ReferenceRenderRoom(world, simPlayer.roomIndex, referenceTarget);
+    if (referenceRoom) {
+        StageReferencePlayer(stagedPlayer, *referenceRoom);
+    }
+    const PlayerState& player = stagedPlayer;
     const bool playerActing = player.actionTimer > 0.0f && player.actionDuration > 0.0f;
     const float playerMoveSpeed = std::sqrt(LengthSq(player.velocity));
     const float playerMoveIntensity = Saturate(playerMoveSpeed / 5.8f);
@@ -3198,11 +3389,12 @@ std::vector<EntityRTProxy> BuildEntityProxies(const CombatSim& sim) {
     const uint32_t playerVariant = playerVariantBase |
         (playerMoveIntensity > 0.08f ? 0x08u : 0u) |
         (playerHitReact > 0.0f ? 0x10u : 0u);
+    const float playerProxyRadius = referenceRoom ? 0.96f : 0.88f;
     proxies.push_back(EntityRTProxy{
         EntityProxyKind::PlayerCore,
         MakeVec3(playerVisualPosition, 0.05f + playerMoveIntensity * 0.035f),
         facing,
-        0.88f,
+        playerProxyRadius,
         kMaterialPlayerCore,
         playerActionPhase,
         PackPlayerVisualTag(playerVisualWeapon, playerVisualElement, playerVisualAction, playerVisualShape, playerVariant)
@@ -3211,7 +3403,7 @@ std::vector<EntityRTProxy> BuildEntityProxies(const CombatSim& sim) {
         EntityProxyKind::PlayerBlade,
         MakeVec3(playerVisualPosition + playerActionFacing * (0.58f + playerActionPhase * 0.20f), 0.48f + playerActionPhase * 0.10f),
         facing,
-        0.42f,
+        referenceRoom ? 0.44f : 0.42f,
         kMaterialPlayerBlade,
         playerActionPhase,
         static_cast<uint32_t>(playerVisualWeapon)
@@ -3219,6 +3411,7 @@ std::vector<EntityRTProxy> BuildEntityProxies(const CombatSim& sim) {
     AddPlayerActionProxy(proxies, player);
 
     uint32_t enemyOrdinal = 0u;
+    uint32_t referenceEnemyOrdinal = 0u;
     for (const EnemyState& enemy : sim.Enemies()) {
         if (!enemy.active || enemy.hp <= 0.0f) {
             ++enemyOrdinal;
@@ -3254,30 +3447,37 @@ std::vector<EntityRTProxy> BuildEntityProxies(const CombatSim& sim) {
             materialId = kMaterialEnemyBoss;
             break;
         }
-        const bool enemyActing = enemy.actionTimer > 0.0f && enemy.actionDuration > 0.0f;
-        const float enemyMoveSpeed = std::sqrt(LengthSq(enemy.velocity));
+        if (referenceRoom && enemy.roomIndex == player.roomIndex) {
+            radius *= enemy.kind == EnemyKind::Boss ? 0.68f : 0.88f;
+        }
+        EnemyState stagedEnemy = enemy;
+        if (referenceRoom && enemy.roomIndex == player.roomIndex) {
+            StageReferenceEnemy(stagedEnemy, *referenceRoom, referenceEnemyOrdinal++, player.position);
+        }
+        const bool enemyActing = stagedEnemy.actionTimer > 0.0f && stagedEnemy.actionDuration > 0.0f;
+        const float enemyMoveSpeed = std::sqrt(LengthSq(stagedEnemy.velocity));
         const float enemyMoveIntensity = Saturate(enemyMoveSpeed / 3.8f);
-        const float enemyFloat = enemy.kind == EnemyKind::Caster
-            ? 0.070f + std::sin(enemy.movePhase + static_cast<float>(enemyOrdinal) * 1.37f) * 0.030f
+        const float enemyFloat = stagedEnemy.kind == EnemyKind::Caster
+            ? 0.070f + std::sin(stagedEnemy.movePhase + static_cast<float>(enemyOrdinal) * 1.37f) * 0.030f
             : 0.0f;
         const float enemyIdlePhase = Clamp(
-            0.040f + std::sin(enemy.movePhase + static_cast<float>(enemyOrdinal) * 0.73f) * 0.030f + enemyMoveIntensity * 0.11f,
+            0.040f + std::sin(stagedEnemy.movePhase + static_cast<float>(enemyOrdinal) * 0.73f) * 0.030f + enemyMoveIntensity * 0.11f,
             0.0f,
             0.26f);
         float enemyActionPhase = enemyActing
-            ? ActionPosePhase(enemy.actionTimer, enemy.actionDuration, enemy.actionImpactTime, enemy.actionRecovery)
+            ? ActionPosePhase(stagedEnemy.actionTimer, stagedEnemy.actionDuration, stagedEnemy.actionImpactTime, stagedEnemy.actionRecovery)
             : enemyIdlePhase;
-        const float enemyHitReact = Saturate(enemy.hitReactTimer / 0.24f);
+        const float enemyHitReact = Saturate(stagedEnemy.hitReactTimer / 0.24f);
         if (enemyHitReact > 0.0f) {
             enemyActionPhase = std::max(enemyActionPhase, 0.70f + Smooth01(enemyHitReact) * 0.23f);
         }
-        const Vec2 enemyVisualPosition = enemy.position + enemy.hitReactDirection * (enemyHitReact * (enemy.kind == EnemyKind::Boss ? 0.06f : 0.10f));
-        const Vec2 fallbackFacing = Normalize2(player.position - enemy.position, Vec2{1.0f, 0.0f});
-        const Vec2 enemyFacing2 = enemyActing ? Normalize2(enemy.activeActionDirection, fallbackFacing) : fallbackFacing;
-        const WeaponId enemyVisualWeapon = enemyActing ? enemy.activeActionWeapon : enemy.weapon.weapon;
-        const Element enemyVisualElement = enemyActing ? enemy.activeActionElement : enemy.weapon.element;
-        const WeaponActionIndex enemyVisualAction = enemyActing ? enemy.activeActionIndex : WeaponActionIndex::Action1;
-        const AttackShape enemyVisualShape = enemyActing ? enemy.activeActionShape : AttackShape::Cone;
+        const Vec2 enemyVisualPosition = stagedEnemy.position + stagedEnemy.hitReactDirection * (enemyHitReact * (stagedEnemy.kind == EnemyKind::Boss ? 0.06f : 0.10f));
+        const Vec2 fallbackFacing = Normalize2(player.position - stagedEnemy.position, Vec2{1.0f, 0.0f});
+        const Vec2 enemyFacing2 = enemyActing ? Normalize2(stagedEnemy.activeActionDirection, fallbackFacing) : fallbackFacing;
+        const WeaponId enemyVisualWeapon = enemyActing ? stagedEnemy.activeActionWeapon : stagedEnemy.weapon.weapon;
+        const Element enemyVisualElement = enemyActing ? stagedEnemy.activeActionElement : stagedEnemy.weapon.element;
+        const WeaponActionIndex enemyVisualAction = enemyActing ? stagedEnemy.activeActionIndex : WeaponActionIndex::Action1;
+        const AttackShape enemyVisualShape = enemyActing ? stagedEnemy.activeActionShape : AttackShape::Cone;
         const uint32_t enemyVariant = HashMix(
             enemyOrdinal * 131u + static_cast<uint32_t>(enemy.kind) * 17u + static_cast<uint32_t>(enemy.roomIndex) * 29u,
             static_cast<uint32_t>(enemyVisualWeapon) * 43u + static_cast<uint32_t>(enemyVisualElement) * 97u) & 0x7u;
@@ -3291,11 +3491,11 @@ std::vector<EntityRTProxy> BuildEntityProxies(const CombatSim& sim) {
             enemyActionPhase,
             visualTag
         });
-        EnemyState visualEnemy = enemy;
+        EnemyState visualEnemy = stagedEnemy;
         visualEnemy.position = enemyVisualPosition;
         AddEnemyReadabilityProxies(proxies, visualEnemy, radius);
-        AddEnemyActionAccentProxies(proxies, enemy);
-        AddEnemyTellProxy(proxies, enemy, player);
+        AddEnemyActionAccentProxies(proxies, stagedEnemy);
+        AddEnemyTellProxy(proxies, stagedEnemy, player);
         ++enemyOrdinal;
     }
 
@@ -3344,6 +3544,8 @@ std::vector<EntityRTProxy> BuildVfxProxies(std::span<const RenderVfxPulse> pulse
 
         EntityProxyKind proxyKind = EntityProxyKind::HitSpark;
         uint32_t materialId = kMaterialHitSpark;
+        float proxyPhase = progress;
+        uint32_t visualTag = 0u;
         switch (pulse.kind) {
         case RenderVfxKind::HitSpark:
             proxyKind = EntityProxyKind::HitSpark;
@@ -3360,14 +3562,19 @@ std::vector<EntityRTProxy> BuildVfxProxies(std::span<const RenderVfxPulse> pulse
         case RenderVfxKind::WeaponCone:
             proxyKind = EntityProxyKind::PlayerActionCone;
             materialId = kMaterialPlayerBlade;
+            proxyPhase = 0.68f + progress * 0.16f;
+            visualTag = PackActionVisualTag(WeaponId::Katana, Element::Electricity, 0x96u);
             break;
         case RenderVfxKind::WeaponLine:
             proxyKind = EntityProxyKind::PlayerActionLine;
-            materialId = kMaterialProjectile;
+            materialId = kMaterialPlayerBlade;
+            proxyPhase = 0.66f + progress * 0.14f;
+            visualTag = PackActionVisualTag(WeaponId::Katana, Element::Electricity, 0x97u);
             break;
         case RenderVfxKind::WeaponRing:
             proxyKind = EntityProxyKind::PlayerActionBurst;
             materialId = kMaterialControl;
+            visualTag = PackActionVisualTag(WeaponId::Katana, Element::Electricity, 0x98u);
             break;
         case RenderVfxKind::WeaponBurst:
             proxyKind = EntityProxyKind::PlayerActionBurst;
@@ -3385,7 +3592,9 @@ std::vector<EntityRTProxy> BuildVfxProxies(std::span<const RenderVfxPulse> pulse
             position,
             pulse.direction,
             proxyRadius,
-            materialId
+            materialId,
+            proxyPhase,
+            visualTag
         });
     }
 
@@ -3396,7 +3605,8 @@ GeneratedRTGeometry GenerateWorldGeometry(
     const RoomGraph& world,
     const RoomVisualStyle* style,
     int focusRoomIndex,
-    const ShotLayout* shotLayout) {
+    const ShotLayout* shotLayout,
+    bool referenceTarget) {
     GeneratedRTGeometry geo{};
     geo.triangles.reserve(static_cast<std::size_t>(world.roomCount) * 620u + static_cast<std::size_t>(world.portalCount) * 10u);
     const bool hasFocus = focusRoomIndex >= 0 && focusRoomIndex < world.roomCount;
@@ -3424,16 +3634,25 @@ GeneratedRTGeometry GenerateWorldGeometry(
             AddFloor(
                 geo,
                 room.center,
-                Vec2{
-                    room.halfSize.x + 6.60f + edgeDensity * 1.05f - clearBias * 0.26f,
-                    room.halfSize.y + 5.70f + edgeDensity * 0.88f - clearBias * 0.20f
-                },
-                kMaterialCorridor);
+                referenceTarget
+                    ? Vec2{
+                        room.halfSize.x + 1.22f + edgeDensity * 0.22f - clearBias * 0.06f,
+                        room.halfSize.y + 1.02f + edgeDensity * 0.18f - clearBias * 0.05f
+                    }
+                    : Vec2{
+                        room.halfSize.x + 6.60f + edgeDensity * 1.05f - clearBias * 0.26f,
+                        room.halfSize.y + 5.70f + edgeDensity * 0.88f - clearBias * 0.20f
+                    },
+                referenceTarget ? kMaterialFloor : kMaterialCorridor);
         }
         AddFloor(geo, room.center, room.halfSize, kMaterialFloor);
         if (activeStyle) {
             AddStyleFloorDetails(geo, room, *activeStyle, i);
             AddStyleProps(geo, room, *activeStyle, i);
+            if (referenceTarget && hasFocus) {
+                const uint32_t seedBase = HashMix(VisualStyleHash(*activeStyle), static_cast<uint32_t>(i * 977 + 0x513u));
+                AddReferenceArenaDiorama(geo, room, *activeStyle, seedBase);
+            }
         }
         AddRoomBorders(geo, room);
         AddControlObjectiveMarker(geo, room);

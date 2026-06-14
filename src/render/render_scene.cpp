@@ -23,7 +23,8 @@ DirectX::XMMATRIX UpdateCamera(
     const RoomGraph& world,
     const CombatSim& combat,
     uint32_t outputWidth,
-    uint32_t outputHeight) {
+    uint32_t outputHeight,
+    bool referenceTarget) {
     const PlayerState& player = combat.Player();
     Vec2 roomCenter = player.position;
     Vec2 roomHalfSize{6.0f, 4.5f};
@@ -33,28 +34,32 @@ DirectX::XMMATRIX UpdateCamera(
         roomHalfSize = room.halfSize;
     }
 
-    const Vec2 playerBias = (player.position - roomCenter) * 0.12f;
-    scene.camera.target = Vec3{roomCenter.x + playerBias.x, 0.32f, roomCenter.y + playerBias.y};
+    const Vec2 playerBias = (player.position - roomCenter) * (referenceTarget ? 0.035f : 0.12f);
+    scene.camera.target = Vec3{
+        roomCenter.x + playerBias.x + (referenceTarget ? roomHalfSize.x * 0.04f : 0.0f),
+        referenceTarget ? 0.18f : 0.32f,
+        roomCenter.y + playerBias.y + (referenceTarget ? roomHalfSize.y * 0.06f : 0.0f)
+    };
     const float arenaRadius = std::max(roomHalfSize.x, roomHalfSize.y);
     const float aspect = outputHeight > 0
         ? static_cast<float>(outputWidth) / static_cast<float>(outputHeight)
         : 16.0f / 9.0f;
     const float narrowScale = aspect < 1.45f ? 1.12f : 1.0f;
-    const float height = (13.4f + arenaRadius * 0.34f) * narrowScale;
-    const float pullback = (12.2f + arenaRadius * 0.86f) * narrowScale;
-    const float sideOffset = arenaRadius * 0.58f;
+    const float height = ((referenceTarget ? 13.0f : 13.4f) + arenaRadius * (referenceTarget ? 0.30f : 0.34f)) * narrowScale;
+    const float pullback = ((referenceTarget ? 8.2f : 12.2f) + arenaRadius * (referenceTarget ? 0.48f : 0.86f)) * narrowScale;
+    const float sideOffset = arenaRadius * (referenceTarget ? 0.36f : 0.58f);
     scene.camera.position = Vec3{
         scene.camera.target.x - sideOffset,
         height,
         scene.camera.target.z - pullback
     };
-    scene.camera.tiltRadians = 1.02f;
+    scene.camera.tiltRadians = referenceTarget ? 1.08f : 1.02f;
 
     const DirectX::XMVECTOR eye = DirectX::XMVectorSet(scene.camera.position.x, scene.camera.position.y, scene.camera.position.z, 1.0f);
     const DirectX::XMVECTOR target = DirectX::XMVectorSet(scene.camera.target.x, scene.camera.target.y, scene.camera.target.z, 1.0f);
     const DirectX::XMVECTOR up = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
     const DirectX::XMMATRIX view = DirectX::XMMatrixLookAtLH(eye, target, up);
-    const DirectX::XMMATRIX proj = DirectX::XMMatrixPerspectiveFovLH(0.500f, aspect, 0.05f, 220.0f);
+    const DirectX::XMMATRIX proj = DirectX::XMMatrixPerspectiveFovLH(referenceTarget ? 0.455f : 0.500f, aspect, 0.05f, 220.0f);
     const DirectX::XMMATRIX viewProj = DirectX::XMMatrixMultiply(view, proj);
     const DirectX::XMMATRIX invViewProj = DirectX::XMMatrixInverse(nullptr, viewProj);
     StoreMatrix(scene.frame.invViewProj, invViewProj);
@@ -501,17 +506,52 @@ void AddActorStatusSprites(
     }
 }
 
+PlayerState BuildReferenceSpritePlayer(const PlayerState& source, const RoomGraph& world, bool referenceTarget) {
+    PlayerState player = source;
+    if (!referenceTarget || source.roomIndex < 0 || source.roomIndex >= world.roomCount) {
+        return player;
+    }
+
+    const Room& room = world.rooms[source.roomIndex];
+    const Vec2 facing = NormalizeOr(Vec2{1.0f, 0.16f}, Vec2{1.0f, 0.0f});
+    player.position = Vec2{
+        room.center.x,
+        room.center.y - room.halfSize.y * 0.03f
+    };
+    player.facing = facing;
+    player.activeWeaponSlot = 0;
+    player.weaponSlots[0].weapon = WeaponId::Katana;
+    player.weaponSlots[0].element = Element::Electricity;
+    player.weaponSlots[0].cooldowns[0] = 0.0f;
+    player.weaponSlots[0].cooldowns[1] = 0.0f;
+    player.actionDuration = 0.52f;
+    player.actionImpactTime = 0.22f;
+    player.actionRecovery = 0.30f;
+    player.actionTimer = 0.30f;
+    player.activeActionWeapon = WeaponId::Katana;
+    player.activeActionElement = Element::Electricity;
+    player.activeActionIndex = WeaponActionIndex::Action1;
+    player.activeActionShape = AttackShape::Cone;
+    player.activeActionOrigin = player.position;
+    player.activeActionTarget = player.position + facing * 4.4f;
+    player.activeActionDirection = facing;
+    return player;
+}
+
 void BuildRenderSprites(
     RenderScene& scene,
     const CombatSim& combat,
+    const RoomGraph& world,
     std::span<const RenderVfxPulse> transientVfx,
     const DirectX::XMMATRIX& viewProj,
     float timeSeconds,
     uint32_t frameIndex,
     uint32_t displayWidth,
-    uint32_t displayHeight) {
+    uint32_t displayHeight,
+    bool referenceTarget) {
     scene.spriteCount = 0;
-    const PlayerState& player = combat.Player();
+    const PlayerState stagedPlayer = BuildReferenceSpritePlayer(combat.Player(), world, referenceTarget);
+    const PlayerState& player = stagedPlayer;
     const int activeSlot = ActiveWeaponSlotIndex(player);
 
     const Vec2 facing = NormalizeOr(
@@ -570,13 +610,15 @@ void BuildRenderSprites(
             actionAlpha = Clamp(0.032f + impactPulse * 0.068f, 0.020f, 0.120f);
             break;
         }
+        const float stagedActionWorldRadius = referenceTarget ? actionWorldRadius * 0.36f : actionWorldRadius;
+        const float stagedActionAlpha = referenceTarget ? actionAlpha * 0.16f : actionAlpha;
         AddWorldSprite(
             scene,
             viewProj,
             WorldFromGround(actionCenter, 0.32f + impactPulse * 0.10f),
-            actionWorldRadius,
+            stagedActionWorldRadius,
             weaponColor,
-            actionAlpha,
+            stagedActionAlpha,
             AtlasForAction(player.activeActionShape, weaponElement),
             SpriteSeed(frameIndex, 1u, 23u),
             weaponRotation + progress * 1.25f,
@@ -613,15 +655,24 @@ void BuildRenderSprites(
         const float rotation = ScreenRotationForDirection(viewProj, pulse.position, direction, displayWidth, displayHeight);
         const Vec3 color = ColorForVfxKind(pulse.kind);
         const uint32_t seed = SpriteSeed(frameIndex, pulseIndex, 41u);
-        const float pulseRadiusMax =
+        float pulseRadiusMax =
             (pulse.kind == RenderVfxKind::WeaponRing || pulse.kind == RenderVfxKind::WeaponBurst) ? 0.62f : 1.20f;
+        if (referenceTarget && pulse.kind == RenderVfxKind::WeaponCone) {
+            pulseRadiusMax = 0.46f;
+        } else if (referenceTarget && pulse.kind == RenderVfxKind::WeaponLine) {
+            pulseRadiusMax = 0.72f;
+        }
+        float pulseAlpha = Clamp((0.24f + pulse.intensity * 0.18f) * life, 0.0f, 0.58f);
+        if (referenceTarget && (pulse.kind == RenderVfxKind::WeaponCone || pulse.kind == RenderVfxKind::WeaponLine)) {
+            pulseAlpha *= 0.48f;
+        }
         AddWorldSprite(
             scene,
             viewProj,
             Vec3{pulse.position.x, pulse.position.y + progress * 0.14f, pulse.position.z},
             Clamp(pulse.radius * (0.42f + progress * 0.18f), 0.09f, pulseRadiusMax),
             color,
-            Clamp((0.24f + pulse.intensity * 0.18f) * life, 0.0f, 0.58f),
+            pulseAlpha,
             AtlasForVfxKind(pulse.kind),
             seed,
             rotation + progress * 0.85f,
@@ -721,18 +772,43 @@ RenderScene BuildRenderScene(
     uint32_t runStatus,
     uint32_t displayWidth,
     uint32_t displayHeight,
-    uint32_t renderQuality) {
+    uint32_t renderQuality,
+    bool referenceTarget) {
     RenderScene scene{};
     scene.world = world;
     const PlayerState& player = combat.Player();
     const int activeSlot = ActiveWeaponSlotIndex(player);
 
     scene.visualStyle = BuildVisualStyle(world, player.roomIndex);
+    if (referenceTarget) {
+        scene.visualStyle.biome = VisualBiome::SunlitRuins;
+        scene.visualStyle.paletteId = 0;
+        scene.visualStyle.floorPatternId = 1;
+        scene.visualStyle.propGrammarId = static_cast<uint32_t>(VisualBiome::OvergrownSanctuary);
+        scene.visualStyle.lightRigId = static_cast<uint32_t>(VisualBiome::SunlitRuins);
+        scene.visualStyle.moss = 0.50f;
+        scene.visualStyle.wetness = 0.24f;
+        scene.visualStyle.cracks = 0.66f;
+        scene.visualStyle.decay = 0.56f;
+        scene.visualStyle.corruption = 0.04f;
+        scene.visualStyle.glow = 0.78f;
+        scene.visualStyle.fog = 0.12f;
+    }
     scene.visualStylePacked = PackVisualStyle(scene.visualStyle);
     scene.shotLayout = BuildShotLayout(world, player.roomIndex, scene.visualStyle);
+    if (referenceTarget) {
+        scene.shotLayout.keyLightSide = 0u;
+        scene.shotLayout.windowFrame = 1u;
+        scene.shotLayout.foregroundMask = 1u;
+        scene.shotLayout.combatClearRadius = 0.74f;
+        scene.shotLayout.edgeDensity = 0.98f;
+        scene.shotLayout.foliageDensity = 1.0f;
+        scene.shotLayout.heroVfxBias = 1.0f;
+        scene.shotLayout.warmCoolContrast = 0.96f;
+    }
     scene.shotLayoutPacked = PackShotLayout(scene.shotLayout);
 
-    const DirectX::XMMATRIX viewProj = UpdateCamera(scene, world, combat, outputWidth, outputHeight);
+    const DirectX::XMMATRIX viewProj = UpdateCamera(scene, world, combat, outputWidth, outputHeight, referenceTarget);
     scene.frame.cameraPosition[0] = scene.camera.position.x;
     scene.frame.cameraPosition[1] = scene.camera.position.y;
     scene.frame.cameraPosition[2] = scene.camera.position.z;
@@ -750,6 +826,7 @@ RenderScene BuildRenderScene(
     scene.frame.shotLayoutIdentity = scene.shotLayoutPacked.identity;
     scene.frame.shotLayoutWeights = scene.shotLayoutPacked.weights;
     scene.frame.renderQuality = std::min(renderQuality, 5u);
+    scene.frame.reserved0 = (frameIndex & 0x7fffffffu) | (referenceTarget ? 0x80000000u : 0u);
     scene.overlay.overlayWeaponId = static_cast<uint32_t>(player.weaponSlots[activeSlot].weapon);
     scene.overlay.overlayElementId = static_cast<uint32_t>(player.weaponSlots[activeSlot].element);
     scene.overlay.overlayActiveSlot = static_cast<uint32_t>(activeSlot + 1);
@@ -779,17 +856,19 @@ RenderScene BuildRenderScene(
     BuildRenderSprites(
         scene,
         combat,
+        world,
         transientVfx,
         viewProj,
         timeSeconds,
         frameIndex,
         scene.frame.displayWidth,
-        scene.frame.displayHeight);
+        scene.frame.displayHeight,
+        referenceTarget);
 
-    scene.proxies = BuildEntityProxies(combat);
+    scene.proxies = BuildEntityProxies(combat, &world, referenceTarget);
     std::vector<EntityRTProxy> vfxProxies = BuildVfxProxies(transientVfx);
     scene.proxies.insert(scene.proxies.end(), vfxProxies.begin(), vfxProxies.end());
-    scene.generatedGeometry = GenerateWorldGeometry(world, &scene.visualStyle, player.roomIndex, &scene.shotLayout);
+    scene.generatedGeometry = GenerateWorldGeometry(world, &scene.visualStyle, player.roomIndex, &scene.shotLayout, referenceTarget);
     GeneratedRTGeometry entityGeometry = GenerateRTGeometry(scene.proxies);
     scene.generatedGeometry.triangles.insert(
         scene.generatedGeometry.triangles.end(),

@@ -395,7 +395,8 @@ D3D12OverlayConstants MakeOverlayConstants(
     uint32_t rewardAppliedOption) {
     D3D12OverlayConstants overlay{};
     const RunPhase phase = session.Phase();
-    overlay.enabled = 1;
+    const bool referenceMode = (scene.frame.reserved0 & 0x80000000u) != 0u;
+    overlay.enabled = referenceMode ? 0u : 1u;
     overlay.weaponId = scene.overlay.overlayWeaponId;
     overlay.elementId = scene.overlay.overlayElementId;
     overlay.activeSlot = scene.overlay.overlayActiveSlot;
@@ -421,7 +422,7 @@ D3D12OverlayConstants MakeOverlayConstants(
     overlay.runStatus = scene.overlay.overlayRunStatus;
     overlay.outputWidth = scene.frame.displayWidth;
     overlay.outputHeight = scene.frame.displayHeight;
-    overlay.reserved0 = scene.frame.frameIndex;
+    overlay.reserved0 = scene.frame.reserved0;
     overlay.damageFlashPercent = damageFlashPercent;
     overlay.damageElementId = damageElementId;
     overlay.rewardAppliedFlashPercent = rewardAppliedFlashPercent;
@@ -498,13 +499,23 @@ void Application::Tick(const InputState& input, float dt) {
     UpdateVfxPulses(dt);
     InputState effectiveInput = input;
     if (config_.smokeCombatRoom >= 0) {
-        const float phase = std::fmod(timeSeconds_, 1.38f);
-        effectiveInput.aimX = std::cos(timeSeconds_ * 0.84f) * 0.34f + 0.84f;
-        effectiveInput.aimY = std::sin(timeSeconds_ * 0.62f) * 0.28f + 0.18f;
-        effectiveInput.moveX = std::sin(timeSeconds_ * 0.70f) * 0.22f;
-        effectiveInput.moveY = std::cos(timeSeconds_ * 0.56f) * 0.18f;
-        effectiveInput.action1 = phase < 0.20f || (phase > 0.44f && phase < 0.56f);
-        effectiveInput.action2 = phase > 0.78f && phase < 1.18f;
+        const float phase = std::fmod(timeSeconds_, config_.referenceTarget ? 0.72f : 1.38f);
+        if (config_.referenceTarget) {
+            effectiveInput.selectWeaponSlot = 0;
+            effectiveInput.aimX = 1.0f;
+            effectiveInput.aimY = 0.16f;
+            effectiveInput.moveX = std::sin(timeSeconds_ * 0.55f) * 0.06f;
+            effectiveInput.moveY = std::cos(timeSeconds_ * 0.47f) * 0.05f;
+            effectiveInput.action1 = phase < 0.18f || phase > 0.54f;
+            effectiveInput.action2 = false;
+        } else {
+            effectiveInput.aimX = std::cos(timeSeconds_ * 0.84f) * 0.34f + 0.84f;
+            effectiveInput.aimY = std::sin(timeSeconds_ * 0.62f) * 0.28f + 0.18f;
+            effectiveInput.moveX = std::sin(timeSeconds_ * 0.70f) * 0.22f;
+            effectiveInput.moveY = std::cos(timeSeconds_ * 0.56f) * 0.18f;
+            effectiveInput.action1 = phase < 0.20f || (phase > 0.44f && phase < 0.56f);
+            effectiveInput.action2 = phase > 0.78f && phase < 1.18f;
+        }
         effectiveInput.melee = effectiveInput.action1;
         effectiveInput.ranged = effectiveInput.action2;
         effectiveInput.control = effectiveInput.action2;
@@ -549,6 +560,37 @@ void Application::Tick(const InputState& input, float dt) {
             }
         }
     }
+    if (config_.referenceTarget) {
+        const RoomGraph& world = session_.World();
+        const PlayerState& player = session_.Combat().Player();
+        Vec2 hero = player.position;
+        if (player.roomIndex >= 0 && player.roomIndex < world.roomCount) {
+            const Room& room = world.rooms[player.roomIndex];
+            hero = Vec2{
+                room.center.x,
+                room.center.y - room.halfSize.y * 0.03f
+            };
+        }
+        const Vec2 facing = NormalizeOr(Vec2{1.0f, 0.16f}, Vec2{1.0f, 0.0f});
+        const Vec3 vfxDir = FacingVfxDirection(facing);
+        auto pushReferencePulse = [&](RenderVfxKind kind, Vec2 position, float y, float radius, float ttl, float duration, float intensity) {
+            if (framePulseCount < kFrameVfxPulseCapacity) {
+                framePulses[framePulseCount++] = RenderVfxPulse{
+                    kind,
+                    MakePulsePosition(position, y),
+                    radius,
+                    ttl,
+                    duration,
+                    intensity,
+                    vfxDir
+                };
+            }
+        };
+        pushReferencePulse(RenderVfxKind::WeaponCone, hero + facing * 0.46f, 0.18f, 3.75f, 0.26f, 0.32f, 1.65f);
+        pushReferencePulse(RenderVfxKind::WeaponLine, hero + facing * 0.76f, 0.24f, 1.65f, 0.18f, 0.28f, 0.45f);
+        pushReferencePulse(RenderVfxKind::WeaponCone, hero + NormalizeOr(Vec2{0.60f, 0.82f}, facing) * 0.34f, 0.16f, 1.80f, 0.18f, 0.30f, 0.82f);
+        pushReferencePulse(RenderVfxKind::HitSpark, hero + facing * 1.78f, 0.64f, 0.18f, 0.20f, 0.30f, 0.72f);
+    }
 
     const uint32_t renderWidth = ScaledRenderDimension(config_.width, config_.renderScalePercent);
     const uint32_t renderHeight = ScaledRenderDimension(config_.height, config_.renderScalePercent);
@@ -563,7 +605,8 @@ void Application::Tick(const InputState& input, float dt) {
         static_cast<uint32_t>(session_.Status()),
         config_.width,
         config_.height,
-        config_.renderQuality);
+        config_.renderQuality,
+        config_.referenceTarget);
 }
 
 void Application::Render() {

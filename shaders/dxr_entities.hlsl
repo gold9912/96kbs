@@ -429,8 +429,9 @@ void ClosestHit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribut
     base = lerp(base, base + float3(0.090, 0.105, 0.120) * armorFacet - float3(0.032, 0.028, 0.026) * battleWear, armorMask * 0.42);
     base = lerp(base, base * (0.80 + clothWeaveA * 0.12 + clothWeaveB * 0.08), clothMask * 0.28);
     base = lerp(base, base + heroicTint * 0.78 + float3(0.026, 0.034, 0.044) * costumePanel, nonPlayerCharacterMask * costumePanel * 0.28);
-    base = lerp(base, base * 0.24 + float3(0.001, 0.012, 0.033), playerMask * 0.96);
-    base = lerp(base, base * 1.02 + float3(0.004, 0.060, 0.082), playerMask * saturate(costumePanel + armorFacet) * 0.055);
+    float referenceMode = (gFrame.reserved0 & 0x80000000u) != 0u ? 1.0 : 0.0;
+    base = lerp(base, base * lerp(0.24, 0.34, referenceMode) + lerp(float3(0.001, 0.012, 0.033), float3(0.006, 0.038, 0.094), referenceMode), playerMask * 0.96);
+    base = lerp(base, base * 1.02 + lerp(float3(0.004, 0.060, 0.082), float3(0.014, 0.108, 0.138), referenceMode), playerMask * saturate(costumePanel + armorFacet) * lerp(0.055, 0.120, referenceMode));
     base = lerp(base, base * 0.86 + styleCrackColor(biome) * 0.095, saturate(bruteMask + bossMask) * battleWear * 0.24);
     base = lerp(base, float3(0.62, 0.70, 0.72) * (0.72 + charGrain * 0.34) + styleLightColor(biome) * 0.045, boneMask * 0.72);
     base += bladeMask * (styleLightColor(biome) * (0.082 + armorFacet * 0.085) + float3(0.052, 0.110, 0.124));
